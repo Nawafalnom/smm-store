@@ -1,18 +1,14 @@
 /**
- * Cloudflare Worker — Binance Pay API Proxy
+ * Cloudflare Worker — Binance Pay API Proxy v2
  * 
- * Deploy this on Cloudflare Workers (free tier):
- * 1. Go to https://dash.cloudflare.com → Workers & Pages → Create
- * 2. Name it "binance-proxy" 
- * 3. Paste this code → Deploy
- * 4. Add environment variable: PROXY_SECRET = "growence-binance-2024" (Settings → Variables)
- * 5. Copy your worker URL (e.g. https://binance-proxy.YOUR_NAME.workers.dev)
- * 6. Set BINANCE_PROXY_URL in Vercel env vars to that URL
+ * IMPORTANT: This version receives pre-serialized bodyStr to preserve
+ * the exact JSON used for HMAC signature computation.
+ *
+ * UPDATE THIS IN YOUR CLOUDFLARE WORKER DASHBOARD!
  */
 
 export default {
   async fetch(request, env) {
-    // CORS headers
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -27,7 +23,6 @@ export default {
       return new Response(JSON.stringify({ error: "POST only" }), { status: 405, headers: corsHeaders });
     }
 
-    // Verify proxy secret
     const secret = request.headers.get("X-Proxy-Secret");
     if (secret !== (env.PROXY_SECRET || "growence-binance-2024")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
@@ -35,15 +30,15 @@ export default {
 
     try {
       const body = await request.json();
-      const { endpoint, payload, headers: binanceHeaders } = body;
+      const { endpoint, bodyStr, headers: binanceHeaders } = body;
 
-      if (!endpoint || !payload || !binanceHeaders) {
-        return new Response(JSON.stringify({ error: "Missing endpoint, payload, or headers" }), { 
+      if (!endpoint || !bodyStr || !binanceHeaders) {
+        return new Response(JSON.stringify({ error: "Missing endpoint, bodyStr, or headers" }), { 
           status: 400, headers: corsHeaders 
         });
       }
 
-      // Forward request to Binance Pay API
+      // Forward EXACT bodyStr to Binance (same bytes used for signature)
       const binanceUrl = `https://bpay.binanceapi.com${endpoint}`;
       const res = await fetch(binanceUrl, {
         method: "POST",
@@ -51,7 +46,7 @@ export default {
           "Content-Type": "application/json",
           ...binanceHeaders,
         },
-        body: JSON.stringify(payload),
+        body: bodyStr,
       });
 
       const data = await res.json();
