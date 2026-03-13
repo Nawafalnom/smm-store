@@ -123,7 +123,7 @@ export default function AdminPage() {
       supabase.from("providers").select("*").order("sort_order"),
       supabase.from("categories").select("*").order("sort_order"),
       supabase.from("services").select("*, category:categories(name), provider:providers(name)").order("sort_order"),
-      supabase.from("orders").select("*, service:services(name, provider_id)").order("created_at", { ascending: false }).limit(200),
+      supabase.from("orders").select("*, service:services(name, provider_id, price_per_1000, provider:providers(name)), profile:profiles(username)").order("created_at", { ascending: false }).limit(200),
       supabase.from("orders").select("id, user_id, price, status, created_at, quantity, service_id").order("created_at", { ascending: false }).limit(5000),
       supabase.from("profiles").select("*").order("created_at", { ascending: false }),
       supabase.from("support_tickets").select("*").order("created_at", { ascending: false }).limit(100).then(r => r, () => ({ data: null, error: null })),
@@ -716,16 +716,33 @@ export default function AdminPage() {
             </div>
           </div>
           <div className="overflow-x-auto"><table className="w-full text-xs">
-            <thead><tr className="border-b border-white/5 text-gray-500"><th className="py-2 px-2 text-right">ID</th><th className="py-2 px-2 text-right">الاسم</th><th className="py-2 px-2 text-right">المزوّد</th><th className="py-2 px-2 text-right">$/1K</th><th className="py-2 px-2 text-right">-</th></tr></thead>
+            <thead><tr className="border-b border-white/5 text-gray-500">
+              <th className="py-2 px-2 text-right">ID</th>
+              <th className="py-2 px-2 text-right">الخدمة</th>
+              <th className="py-2 px-2 text-right">المزوّد</th>
+              <th className="py-2 px-2 text-right">أقل</th>
+              <th className="py-2 px-2 text-right">أعلى</th>
+              <th className="py-2 px-2 text-right">سعر البيع</th>
+              <th className="py-2 px-2 text-right">الحالة</th>
+              <th className="py-2 px-2 text-right">-</th>
+            </tr></thead>
             <tbody>{services.map(s => (
               <tr key={s.id} className="border-b border-white/5 hover:bg-white/[0.02]">
                 <td className="py-2 px-2 text-gray-500 font-mono">{s.api_service_id}</td>
-                <td className="py-2 px-2 text-gray-300 max-w-[300px]">
-                  <div className="truncate">{s.name}</div>
-                  {(s as any).name_en && (s as any).name_en !== s.name && <div className="text-[10px] text-gray-600 truncate" dir="ltr">{(s as any).name_en}</div>}
+                <td className="py-2.5 px-2 max-w-[320px]">
+                  <div className="text-gray-200 truncate font-bold text-[11px]">{s.name}</div>
+                  {(s as any).name_en && (s as any).name_en !== s.name && <div className="text-[10px] text-gray-600 truncate mt-0.5" dir="ltr">{(s as any).name_en}</div>}
                 </td>
-                <td className="py-2 px-2 text-purple-400">{(s as any).provider?.name || "-"}</td>
-                <td className="py-2 px-2 font-bold" style={{ color: A }}>${s.price_per_1000}</td>
+                <td className="py-2 px-2 text-purple-400 text-[10px]">{(s as any).provider?.name || "-"}</td>
+                <td className="py-2 px-2 text-gray-400">{s.min_quantity.toLocaleString()}</td>
+                <td className="py-2 px-2 text-gray-400">{s.max_quantity.toLocaleString()}</td>
+                <td className="py-2 px-2">
+                  <div className="font-bold text-green-400">${s.price_per_1000}</div>
+                </td>
+                <td className="py-2 px-2">{s.is_active
+                  ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/15 text-green-400">مفعّل</span>
+                  : <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-400">معطّل</span>}
+                </td>
                 <td className="py-2 px-2 flex gap-1">
                   <button onClick={() => { setEditingSvc(s); setSvcForm({ ...s }); setShowSvcForm(true); }} className="px-2 py-1 rounded bg-blue-500/15 text-blue-400">✏️</button>
                   <button onClick={() => deleteSvc(s.id!)} className="px-2 py-1 rounded bg-red-500/15 text-red-400">🗑️</button>
@@ -738,15 +755,41 @@ export default function AdminPage() {
         {/* ═══ ORDERS ═══ */}
         {!loading && tab === "orders" && (
           <div className="overflow-x-auto"><table className="w-full text-xs">
-            <thead><tr className="border-b border-white/5 text-gray-500"><th className="py-2 px-2 text-right">API#</th><th className="py-2 px-2 text-right">الخدمة</th><th className="py-2 px-2 text-right">الكمية</th><th className="py-2 px-2 text-right">$</th><th className="py-2 px-2 text-right">الحالة</th><th className="py-2 px-2 text-right">التاريخ</th></tr></thead>
-            <tbody>{orders.map(o => { const st = ORDER_STATUSES[o.status] || ORDER_STATUSES.pending; return (
+            <thead><tr className="border-b border-white/5 text-gray-500">
+              <th className="py-2 px-2 text-right">ID</th>
+              <th className="py-2 px-2 text-right">المستخدم</th>
+              <th className="py-2 px-2 text-right">الخدمة</th>
+              <th className="py-2 px-2 text-right">المزوّد</th>
+              <th className="py-2 px-2 text-right">الرابط</th>
+              <th className="py-2 px-2 text-right">البدء</th>
+              <th className="py-2 px-2 text-right">الكمية</th>
+              <th className="py-2 px-2 text-right">المتبقي</th>
+              <th className="py-2 px-2 text-right">السعر</th>
+              <th className="py-2 px-2 text-right">الحالة</th>
+              <th className="py-2 px-2 text-right">التاريخ</th>
+            </tr></thead>
+            <tbody>{orders.map(o => { const st = ORDER_STATUSES[o.status] || ORDER_STATUSES.pending; const usr = (o as any).profile; const svc = (o as any).service; const prov = svc?.provider; return (
               <tr key={o.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                <td className="py-2 px-2 text-gray-500 font-mono">{o.api_order_id || o.id?.slice(0, 8)}</td>
-                <td className="py-2 px-2 text-gray-300">{(o as any).service?.name || "-"}</td>
-                <td className="py-2 px-2 text-white">{o.quantity}</td>
+                <td className="py-2 px-2">
+                  <div className="text-gray-400 font-mono text-[10px]">#{o.id?.slice(0, 6)}</div>
+                  {o.api_order_id && <div className="text-gray-600 font-mono text-[9px]">Ext: {o.api_order_id}</div>}
+                </td>
+                <td className="py-2 px-2">
+                  <span className="text-blue-400 font-bold">{usr?.username || o.user_id.slice(0, 8)}</span>
+                </td>
+                <td className="py-2 px-2 max-w-[200px]">
+                  <div className="text-gray-300 truncate text-[10px]">{svc?.name || "-"}</div>
+                </td>
+                <td className="py-2 px-2 text-purple-400 text-[10px]">{prov?.name || "-"}</td>
+                <td className="py-2 px-2 max-w-[150px]">
+                  {o.link && <a href={o.link} target="_blank" rel="noopener noreferrer" className="text-blue-400/70 hover:text-blue-300 text-[10px] truncate block" dir="ltr" title={o.link}>{o.link.replace(/https?:\/\/(www\.)?/, "").slice(0, 30)}...</a>}
+                </td>
+                <td className="py-2 px-2 text-gray-400 font-mono">{o.start_count > 0 ? o.start_count.toLocaleString() : "-"}</td>
+                <td className="py-2 px-2 text-white font-bold">{o.quantity.toLocaleString()}</td>
+                <td className="py-2 px-2 text-gray-400 font-mono">{o.remains > 0 ? o.remains.toLocaleString() : "-"}</td>
                 <td className="py-2 px-2 font-bold" style={{ color: A }}>${o.price.toFixed(2)}</td>
                 <td className="py-2 px-2"><select value={o.status} onChange={e => updateOrderStatus(o.id!, e.target.value)} className="rounded px-1 py-0.5 bg-dark-700 border-0 text-xs" style={{ color: st.color }}>{Object.entries(ORDER_STATUSES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></td>
-                <td className="py-2 px-2 text-gray-500">{formatDate(o.created_at!)}</td>
+                <td className="py-2 px-2 text-gray-500 text-[10px] whitespace-nowrap">{formatDate(o.created_at!)}</td>
               </tr>); })}</tbody>
           </table></div>
         )}
