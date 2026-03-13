@@ -121,8 +121,8 @@ export default function AdminPage() {
       supabase.from("orders").select("*, service:services(name, provider_id)").order("created_at", { ascending: false }).limit(200),
       supabase.from("orders").select("id, user_id, price, status, created_at, quantity, service_id").order("created_at", { ascending: false }).limit(5000),
       supabase.from("profiles").select("*").order("created_at", { ascending: false }),
-      supabase.from("support_tickets").select("*").order("created_at", { ascending: false }).limit(100).catch(() => ({ data: [] })),
-      supabase.from("admin_notifications").select("*").order("created_at", { ascending: false }).limit(50).catch(() => ({ data: [] })),
+      supabase.from("support_tickets").select("*").order("created_at", { ascending: false }).limit(100).then(r => r, () => ({ data: null, error: null })),
+      supabase.from("admin_notifications").select("*").order("created_at", { ascending: false }).limit(50).then(r => r, () => ({ data: null, error: null })),
     ]);
     if (p.data) setProviders(p.data);
     if (c.data) setCategories(c.data);
@@ -130,8 +130,8 @@ export default function AdminPage() {
     if (o.data) setOrders(o.data as any);
     if (ao.data) setAllOrders(ao.data as any);
     if (u.data) setUsers(u.data);
-    if ((t as any).data) setTickets((t as any).data as any || []);
-    if ((n as any).data) setNotifications((n as any).data as any || []);
+    if ((t as any).data) setTickets((t as any).data || []);
+    if ((n as any).data) setNotifications((n as any).data || []);
     setLoading(false);
   }, []);
 
