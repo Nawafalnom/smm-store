@@ -25,6 +25,32 @@ async function callProviderApi(apiUrl: string, apiKey: string, params: Record<st
   return res.json();
 }
 
+// Decode HTML entities from provider API responses
+function decodeHtmlEntities(text: string): string {
+  if (!text || typeof text !== "string") return text;
+  return text
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec)));
+}
+
+// Clean all string fields in services array
+function cleanServices(data: any): any {
+  if (!Array.isArray(data)) return data;
+  return data.map((item: any) => {
+    const cleaned: any = { ...item };
+    if (cleaned.name) cleaned.name = decodeHtmlEntities(cleaned.name);
+    if (cleaned.category) cleaned.category = decodeHtmlEntities(cleaned.category);
+    if (cleaned.description) cleaned.description = decodeHtmlEntities(cleaned.description);
+    return cleaned;
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { provider_id, action, ...params } = await req.json();
@@ -49,6 +75,7 @@ export async function POST(req: NextRequest) {
     switch (action) {
       case "services":
         result = await callProviderApi(apiUrl, apiKey, { action: "services" });
+        result = cleanServices(result);
         break;
 
       case "balance":

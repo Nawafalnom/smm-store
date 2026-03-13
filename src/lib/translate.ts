@@ -50,6 +50,7 @@ const SERVICE_TYPES: [RegExp, string][] = [
   [/\bmonthly\s*listeners?\b/i, "مستمعين شهريين"],
   [/\bwatch\s*hours?\b|\bwatch\s*time\b/i, "ساعات مشاهدة"],
   [/\bstory\s*views?\b|\bstories\s*views?\b/i, "مشاهدات ستوري"],
+  [/\bvideo\s*(?:\/|&|and)\s*reels?\s*views?\b/i, "مشاهدات فيديو/ريلز"],
   [/\breel\s*(?:views?|likes?|plays?)\b|\breels?\b/i, "ريلز"],
   [/\bshorts?\s*(?:views?|likes?)?\b/i, "شورتس"],
   [/\bigtv\s*views?\b/i, "مشاهدات IGTV"],
@@ -88,9 +89,10 @@ const FB_REACTIONS: [RegExp, string][] = [
 
 // ── Scope / targeting tags ──
 const SCOPE_TAGS: [RegExp, string][] = [
-  [/\b(?:page\s*\+?\s*profile|profile\s*\+?\s*page)\b/i, "صفحة + بروفايل"],
-  [/\bpage\s*only\b|\bfan\s*page\b/i, "صفحة فقط"],
+  [/\b(?:page\s*(?:\+|&|and|\/)\s*profile|profile\s*(?:\+|&|and|\/)\s*page)\b/i, "صفحة + بروفايل"],
+  [/\bpage\s*(?:only|likes?)\b|\bfan\s*page\b/i, "صفحة فقط"],
   [/\bprofile\s*only\b/i, "بروفايل فقط"],
+  [/\bpage\s*\/\s*profile\b|\bprofile\s*\/\s*page\b/i, "صفحة + بروفايل"],
   [/\bgroup\b/i, "مجموعة"],
   [/\bchannel\b/i, "قناة"],
 ];
@@ -191,7 +193,34 @@ export function translateToArabic(text: string): string {
   if (!text || text.trim().length === 0) return text;
   if (isArabic(text)) return text;
 
-  const input = text.trim();
+  // Decode HTML entities first
+  let input = text.trim()
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&apos;/g, "'");
+
+  // Extract and translate bracket tags like [ Provider ], [ Cheapest ], [ NEW ], [ Profile Data ]
+  const bracketTags: string[] = [];
+  const BRACKET_MAP: Record<string, string> = {
+    "new": "🆕 جديد", "cheapest": "💰رخيص", "cheap": "💰رخيص", "best": "⭐أفضل",
+    "recommended": "⭐موصى به", "hot": "🔥رائج", "provider": "", "profile data": "",
+    "working": "", "server 1": "سيرفر 1", "server 2": "سيرفر 2", "server 3": "سيرفر 3",
+    "server 4": "سيرفر 4", "update": "محدّث", "old": "", "test": "تجريبي",
+  };
+  input = input.replace(/\[\s*([^\]]+)\s*\]/g, (_, content) => {
+    const lower = content.trim().toLowerCase();
+    // Check known bracket tags
+    for (const [key, val] of Object.entries(BRACKET_MAP)) {
+      if (lower === key || lower.includes(key)) {
+        if (val) bracketTags.push(val);
+        return "";
+      }
+    }
+    // Keep instant/speed tags for main processing
+    if (/instant|fast|slow/i.test(lower)) return content;
+    // Unknown bracket — keep if meaningful
+    if (lower.length > 1 && !/refill|button/i.test(lower)) bracketTags.push(content.trim());
+    return "";
+  }).replace(/\s+/g, " ").trim();
 
   // 1. Detect platform
   let platform = "";
@@ -318,6 +347,11 @@ export function translateToArabic(text: string): string {
     parts.push(`${m.emoji}${m.text}`);
   }
 
+  // Add translated bracket tags
+  for (const bt of bracketTags) {
+    parts.push(bt);
+  }
+
   return parts.join(" |");
 }
 
@@ -428,11 +462,39 @@ const CATEGORY_MAP: Record<string, string> = {
   "google reviews": "مراجعات جوجل",
   "website traffic": "زيارات الموقع",
   "seo services": "خدمات SEO",
+  "new services": "خدمات جديدة",
+  "facebook post reactions": "تفاعلات منشورات فيسبوك",
+  "facebook page & profile followers": "متابعين فيسبوك (صفحة + بروفايل)",
+  "facebook page/profile followers": "متابعين فيسبوك (صفحة + بروفايل)",
+  "facebook video/reels views": "مشاهدات فيديو/ريلز فيسبوك",
+  "facebook video views": "مشاهدات فيديو فيسبوك",
+  "facebook reels views": "مشاهدات ريلز فيسبوك",
+  "facebook post likes": "لايكات منشورات فيسبوك",
+  "facebook photo likes": "لايكات صور فيسبوك",
+  "instagram auto likes": "لايكات تلقائية إنستغرام",
+  "instagram auto views": "مشاهدات تلقائية إنستغرام",
+  "instagram auto followers": "متابعين تلقائي إنستغرام",
+  "tiktok saves": "حفظ تيك توك",
+  "tiktok favorites": "مفضلات تيك توك",
+  "youtube monetization": "تحقيق الدخل يوتيوب",
+  "youtube premiere": "العرض الأول يوتيوب",
+  "telegram auto views": "مشاهدات تلقائية تيليجرام",
+  "telegram post views": "مشاهدات منشورات تيليجرام",
 };
 
 export function translateCategory(name: string): string {
   if (!name || isArabic(name)) return name;
-  const lower = name.toLowerCase().trim();
+  // Decode HTML entities
+  let cleaned = name.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&apos;/g, "'");
+
+  // Strip bracket tags like [ Provider ], [ Cheapest ], [ NEW ], [ Profile Data ]
+  cleaned = cleaned.replace(/\[\s*[^\]]*\s*\]/g, "").replace(/\s+/g, " ").trim();
+
+  // Normalize separators
+  cleaned = cleaned.replace(/\s*&\s*/g, " & ").replace(/\s*\/\s*/g, "/");
+
+  const lower = cleaned.toLowerCase().trim();
 
   // Try exact match
   if (CATEGORY_MAP[lower]) return CATEGORY_MAP[lower];
@@ -443,7 +505,7 @@ export function translateCategory(name: string): string {
   }
 
   // Fallback: simple translate
-  return translateSimple(name);
+  return translateSimple(cleaned);
 }
 
 /**
