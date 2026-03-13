@@ -102,7 +102,8 @@ export async function createBinanceOrder(params: {
       };
     }
 
-    return { success: false, error: result.errorMessage || result.code || "Unknown error" };
+    console.error("Binance Pay API response:", JSON.stringify(result));
+    return { success: false, error: `[${result.code || result.status}] ${result.errorMessage || JSON.stringify(result)}` };
   } catch (err: any) {
     console.error("Binance Pay create order error:", err);
     return { success: false, error: err.message };

@@ -256,11 +256,12 @@ export default function DashboardPage() {
     if (!amt || amt < 1) { toast.error("الحد الأدنى $1"); return; }
     setDepositSubmitting(true);
     try {
-      const res = await fetch("/api/payments/binance/create", {
+      const response = await fetch("/api/payments/binance/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: user.id, amount: amt }),
-      }).then(r => r.json());
+      });
+      const res = await response.json().catch(() => ({ error: `HTTP ${response.status}: ${response.statusText}` }));
 
       if (res.success && res.checkoutUrl) {
         toast.success("جاري التحويل لـ Binance Pay...");
