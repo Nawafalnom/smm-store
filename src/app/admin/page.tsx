@@ -140,7 +140,33 @@ export default function AdminPage() {
     setLoading(false);
   }, []);
 
+  // Silent refresh — just orders (no loading spinner)
+  const silentRefreshOrders = useCallback(async () => {
+    const [o, ao] = await Promise.all([
+      supabase.from("orders").select("*, service:services(name, provider_id, price_per_1000, provider:providers(name)), profile:profiles(username)").order("created_at", { ascending: false }).limit(200),
+      supabase.from("orders").select("id, user_id, price, status, created_at, quantity, service_id").order("created_at", { ascending: false }).limit(5000),
+    ]);
+    if (o.data) setOrders(o.data as any);
+    if (ao.data) setAllOrders(ao.data as any);
+  }, []);
+
   useEffect(() => { if (authed) fetchAll(); }, [authed, fetchAll]);
+
+  // Auto-refresh orders every 15 seconds + trigger cron every 60 seconds
+  useEffect(() => {
+    if (!authed) return;
+    // Refresh order data from DB every 15 seconds (silent, no spinner)
+    const refreshInterval = setInterval(() => { silentRefreshOrders(); }, 15000);
+    // Trigger server-side cron to update from providers every 60 seconds
+    const cronInterval = setInterval(() => {
+      fetch("/api/cron/update-orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secret: "growence-cron-2024" }),
+      }).catch(() => {});
+    }, 60000);
+    return () => { clearInterval(refreshInterval); clearInterval(cronInterval); };
+  }, [authed, silentRefreshOrders]);
 
   // ═══════════════════════════════════════
   //  COMPUTED STATS
@@ -459,6 +485,10 @@ export default function AdminPage() {
             <span className="font-display font-800 text-lg" style={{ color: A }}>Admin</span>
           </div>
           <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-green-500/10 border border-green-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+              <span className="text-[10px] text-green-400 font-bold">LIVE 15s</span>
+            </div>
             <button onClick={updateOrderStatuses} disabled={syncing} className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50 transition hover:brightness-110" style={{ background: "#3b82f6" }}>{syncing ? "⏳" : "🔄"} تحديث الطلبات</button>
             <button onClick={fetchAll} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white/5 text-gray-400 hover:bg-white/10 transition">♻️</button>
             <button onClick={handleLogout} className="text-gray-500 hover:text-red-400 text-sm transition">خروج</button>
@@ -775,7 +805,7 @@ export default function AdminPage() {
             <tbody>{orders.map(o => { const st = ORDER_STATUSES[o.status] || ORDER_STATUSES.pending; const usr = (o as any).profile; const svc = (o as any).service; const prov = svc?.provider; return (
               <tr key={o.id} className="border-b border-white/5 hover:bg-white/[0.02]">
                 <td className="py-2 px-2">
-                  <div className="text-gray-400 font-mono text-[10px]">#{o.id?.slice(0, 6)}</div>
+                  <div className="text-white font-bold font-mono">#{(o as any).order_number || o.id?.slice(0, 6)}</div>
                   {o.api_order_id && <div className="text-gray-600 font-mono text-[9px]">Ext: {o.api_order_id}</div>}
                 </td>
                 <td className="py-2 px-2">

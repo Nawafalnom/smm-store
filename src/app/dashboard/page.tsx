@@ -486,7 +486,7 @@ export default function DashboardPage() {
                     const canRefill = svc?.can_refill && pid && ["completed", "partial"].includes(o.status);
                     return (
                       <tr key={o.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                        <td className="py-2.5 px-2 text-gray-400 font-mono">{o.api_order_id || o.id?.slice(0, 8)}</td>
+                        <td className="py-2.5 px-2 text-white font-bold font-mono">#{(o as any).order_number || o.id?.slice(0, 8)}</td>
                         <td className="py-2.5 px-2 text-gray-500 whitespace-nowrap">
                           {new Date(o.created_at!).toLocaleDateString("ar-EG")}
                           <br /><span className="text-gray-600">{new Date(o.created_at!).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" })}</span>
