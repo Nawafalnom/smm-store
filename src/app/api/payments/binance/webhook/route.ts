@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { verifyWebhookSignature } from "@/lib/binance-pay";
 
-// Run in Singapore to avoid Binance geo-restrictions
-export const preferredRegion = "fra1";
+// Edge Runtime = Cloudflare network IPs (not blocked by Binance)
+export const runtime = "edge";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
 
     // Verify signature if secret key is configured
     if (process.env.BINANCE_PAY_SECRET_KEY) {
-      if (!verifyWebhookSignature(rawBody, signature)) {
+      if (!await verifyWebhookSignature(rawBody, signature)) {
         console.error("Binance webhook: invalid signature");
         // Still return SUCCESS to prevent retries, but log it
       }

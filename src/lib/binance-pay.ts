@@ -1,4 +1,4 @@
-import crypto from "crypto";
+// Binance Pay API helper — Edge Runtime compatible (Web Crypto API)
 
 const API_KEY = process.env.BINANCE_PAY_API_KEY || "";
 const SECRET_KEY = process.env.BINANCE_PAY_SECRET_KEY || "";
@@ -12,17 +12,31 @@ function nonce(len = 32): string {
   return result;
 }
 
+// HMAC-SHA512 using Web Crypto API (Edge-compatible)
+async function hmacSha512(secret: string, message: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(secret);
+  const msgData = encoder.encode(message);
+
+  const key = await crypto.subtle.importKey(
+    "raw", keyData, { name: "HMAC", hash: "SHA-512" }, false, ["sign"]
+  );
+
+  const signature = await crypto.subtle.sign("HMAC", key, msgData);
+  const hashArray = Array.from(new Uint8Array(signature));
+  return hashArray.map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+}
+
 // Generate signature for Binance Pay API
-function sign(timestamp: number, nonceStr: string, body: string): string {
+async function sign(timestamp: number, nonceStr: string, body: string): Promise<string> {
   const payload = `${timestamp}\n${nonceStr}\n${body}\n`;
-  return crypto.createHmac("sha512", SECRET_KEY).update(payload).digest("hex").toUpperCase();
+  return hmacSha512(SECRET_KEY, payload);
 }
 
 // Verify webhook signature from Binance
-export function verifyWebhookSignature(payload: string, signature: string): boolean {
+export async function verifyWebhookSignature(payload: string, signature: string): Promise<boolean> {
   if (!SECRET_KEY) return false;
-  // Binance sends signature as HMAC-SHA512 of the raw body
-  const expected = crypto.createHmac("sha512", SECRET_KEY).update(payload).digest("hex").toUpperCase();
+  const expected = await hmacSha512(SECRET_KEY, payload);
   return expected === signature.toUpperCase();
 }
 
@@ -31,7 +45,7 @@ async function binanceRequest(endpoint: string, body: object): Promise<any> {
   const timestamp = Date.now();
   const nonceStr = nonce();
   const bodyStr = JSON.stringify(body);
-  const signature = sign(timestamp, nonceStr, bodyStr);
+  const signature = await sign(timestamp, nonceStr, bodyStr);
 
   const res = await fetch(`${BASE_URL}${endpoint}`, {
     method: "POST",
@@ -50,7 +64,6 @@ async function binanceRequest(endpoint: string, body: object): Promise<any> {
 
 /**
  * Create a Binance Pay order
- * Returns checkout URL that user can pay through
  */
 export async function createBinanceOrder(params: {
   amount: number;
@@ -81,8 +94,8 @@ export async function createBinanceOrder(params: {
       description: `Growence Media - Top Up $${params.amount}`,
       goodsDetails: [
         {
-          goodsType: "02", // virtual goods
-          goodsCategory: "Z000", // others
+          goodsType: "02",
+          goodsCategory: "Z000",
           referenceGoodsId: params.depositId,
           goodsName: `Balance Top-Up $${params.amount}`,
           goodsDetail: `Growence Media account funding`,
@@ -91,7 +104,7 @@ export async function createBinanceOrder(params: {
       returnUrl: params.returnUrl,
       cancelUrl: params.returnUrl,
       webhookUrl: params.webhookUrl,
-      orderExpireTime: Date.now() + 30 * 60 * 1000, // 30 min expiry
+      orderExpireTime: Date.now() + 30 * 60 * 1000,
     });
 
     if (result.status === "SUCCESS" && result.data) {
@@ -115,7 +128,7 @@ export async function createBinanceOrder(params: {
  */
 export async function queryBinanceOrder(prepayId: string): Promise<{
   success: boolean;
-  status?: string; // INITIAL, PENDING, PAID, CANCELED, ERROR, REFUNDING, REFUNDED, EXPIRED
+  status?: string;
   transactionId?: string;
   error?: string;
 }> {
