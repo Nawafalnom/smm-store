@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
-export const preferredRegion = "sin1";
+export const preferredRegion = "fra1";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

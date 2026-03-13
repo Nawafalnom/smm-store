@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { verifyWebhookSignature } from "@/lib/binance-pay";
 
 // Run in Singapore to avoid Binance geo-restrictions
-export const preferredRegion = "sin1";
+export const preferredRegion = "fra1";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
