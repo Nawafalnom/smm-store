@@ -1,267 +1,239 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase, STORE, PLATFORMS, ORDER_STATUSES, type Category, type Service, type Order, type Profile, type Provider } from "@/lib/supabase";
 import { getProviderServices, getProviderBalance, getMultiOrderStatus } from "@/lib/smm-api";
 import toast from "react-hot-toast";
 import Link from "next/link";
 
 const A = STORE.accentColor;
-const ADMIN_COOKIE = "gm_admin";
+const P = STORE.color;
 
-// Cookie helpers
-function setCookie(name: string, value: string, days: number = 7) {
-  const d = new Date();
-  d.setTime(d.getTime() + days * 24 * 60 * 60 * 1000);
-  document.cookie = `${name}=${value};expires=${d.toUTCString()};path=/;SameSite=Lax`;
-}
-
-function getCookie(name: string): string | null {
-  const match = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
-  return match ? match[2] : null;
-}
-
-function deleteCookie(name: string) {
-  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
-}
-
-// Type for API service from provider
 interface ApiService {
   service: number; name: string; type: string; category: string;
   rate: string; min: string; max: string; refill: boolean; cancel: boolean;
   selected?: boolean;
 }
 interface ApiCategory { name: string; services: ApiService[]; selected: boolean; expanded: boolean; }
+interface Ticket { id: string; user_id: string; subject: string; message: string; status: string; priority: string; admin_reply: string; created_at: string; updated_at: string; }
+interface Notification { id: string; type: string; title: string; message: string; is_read: boolean; metadata: any; created_at: string; }
+
+function today() { return new Date().toISOString().split("T")[0]; }
+function formatDate(d: string) { return new Date(d).toLocaleDateString("ar-EG", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
+function timeAgo(d: string) {
+  const diff = Date.now() - new Date(d).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "الآن";
+  if (mins < 60) return `منذ ${mins} د`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `منذ ${hrs} س`;
+  return `منذ ${Math.floor(hrs / 24)} ي`;
+}
 
 export default function AdminPage() {
   const [mounted, setMounted] = useState(false);
   const [authed, setAuthed] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [password, setPassword] = useState("");
-  const [loginStep, setLoginStep] = useState<"password" | "2fa" | "setup2fa">("password");
-  const [totpCode, setTotpCode] = useState("");
-  const [setup2FA, setSetup2FA] = useState<{ secret: string; qrUrl: string; configured: boolean; message: string } | null>(null);
-  const [tab, setTab] = useState<"providers" | "categories" | "services" | "orders" | "users">("providers");
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [tab, setTab] = useState<"dashboard" | "reports" | "providers" | "categories" | "services" | "orders" | "users" | "tickets" | "notifications">("dashboard");
+
   const [providers, setProviders] = useState<Provider[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [allOrders, setAllOrders] = useState<Order[]>([]);
   const [users, setUsers] = useState<Profile[]>([]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
-  // Sync Selection Modal
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [syncProvider, setSyncProvider] = useState<Provider | null>(null);
   const [syncCategories, setSyncCategories] = useState<ApiCategory[]>([]);
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncSearch, setSyncSearch] = useState("");
 
-  // Provider form
   const [showProvForm, setShowProvForm] = useState(false);
   const [editingProv, setEditingProv] = useState<Provider | null>(null);
   const [provForm, setProvForm] = useState<Partial<Provider>>({ name: "", api_url: "", api_key: "", is_active: true, sort_order: 0 });
-
-  // Category form
   const [showCatForm, setShowCatForm] = useState(false);
   const [editingCat, setEditingCat] = useState<Category | null>(null);
   const [catForm, setCatForm] = useState<Partial<Category>>({ name: "", sort_order: 0, is_active: true });
-
-  // Service form
   const [showSvcForm, setShowSvcForm] = useState(false);
   const [editingSvc, setEditingSvc] = useState<Service | null>(null);
   const [svcForm, setSvcForm] = useState<Partial<Service>>({});
+  const [showTicketReply, setShowTicketReply] = useState<Ticket | null>(null);
+  const [ticketReply, setTicketReply] = useState("");
 
-  // ── Read session on mount ──
+  // ═══════════════════════════════════════
+  //  AUTH — httpOnly cookie server session
+  // ═══════════════════════════════════════
   useEffect(() => {
-    const val = getCookie(ADMIN_COOKIE);
-    if (val === "1") {
-      setAuthed(true);
-    }
     setMounted(true);
+    fetch("/api/admin/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "verify" }),
+    })
+      .then(r => r.json())
+      .then(d => { if (d.success) setAuthed(true); })
+      .catch(() => {})
+      .finally(() => setCheckingAuth(false));
   }, []);
 
-  function doLogin() {
-    setCookie(ADMIN_COOKIE, "1", 7);
-    setAuthed(true);
-    toast.success("تم تسجيل الدخول");
-  }
-
-  function handleLogin() {
-    const adminPass = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "admin123456";
-    if (password !== adminPass) {
-      toast.error("كلمة المرور غير صحيحة");
-      return;
-    }
-    doLogin();
-  }
-
-  async function handleVerify2FA() {
-    if (totpCode.length !== 6) { toast.error("أدخل 6 أرقام"); return; }
+  async function handleLogin() {
+    if (!password.trim()) { toast.error("أدخل كلمة المرور"); return; }
+    setLoginLoading(true);
     try {
-      const res = await fetch("/api/admin", {
+      const res = await fetch("/api/admin/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "verify2fa", password, code: totpCode }),
+        body: JSON.stringify({ action: "login", password }),
       }).then(r => r.json());
-
-      if (!res.success) { toast.error(res.error || "الكود غير صحيح"); return; }
-
-      doLogin();
-    } catch { toast.error("خطأ"); }
+      if (res.success) { setAuthed(true); toast.success("تم تسجيل الدخول ✓"); }
+      else toast.error(res.error || "كلمة المرور غير صحيحة");
+    } catch { toast.error("خطأ في الاتصال"); }
+    finally { setLoginLoading(false); }
   }
 
-  async function handleSetup2FA() {
-    try {
-      const res = await fetch("/api/admin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "setup2fa", password }),
-      }).then(r => r.json());
-
-      if (res.success) { setSetup2FA(res); setLoginStep("setup2fa"); }
-      else toast.error(res.error);
-    } catch { toast.error("خطأ"); }
-  }
-
-  function handleLogout() {
-    deleteCookie(ADMIN_COOKIE);
+  async function handleLogout() {
+    await fetch("/api/admin/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "logout" }),
+    }).catch(() => {});
     setAuthed(false);
     setPassword("");
-    setTotpCode("");
-    setLoginStep("password");
+    toast.success("تم تسجيل الخروج");
   }
 
+  // ═══════════════════════════════════════
+  //  FETCH ALL DATA
+  // ═══════════════════════════════════════
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [p, c, s, o, u] = await Promise.all([
+    const [p, c, s, o, ao, u, t, n] = await Promise.all([
       supabase.from("providers").select("*").order("sort_order"),
       supabase.from("categories").select("*").order("sort_order"),
       supabase.from("services").select("*, category:categories(name), provider:providers(name)").order("sort_order"),
-      supabase.from("orders").select("*, service:services(name, provider_id)").order("created_at", { ascending: false }).limit(100),
+      supabase.from("orders").select("*, service:services(name, provider_id)").order("created_at", { ascending: false }).limit(200),
+      supabase.from("orders").select("id, user_id, price, status, created_at, quantity, service_id").order("created_at", { ascending: false }).limit(5000),
       supabase.from("profiles").select("*").order("created_at", { ascending: false }),
+      supabase.from("support_tickets").select("*").order("created_at", { ascending: false }).limit(100).catch(() => ({ data: [] })),
+      supabase.from("admin_notifications").select("*").order("created_at", { ascending: false }).limit(50).catch(() => ({ data: [] })),
     ]);
-    if (p.data) setProviders(p.data); if (c.data) setCategories(c.data);
-    if (s.data) setServices(s.data); if (o.data) setOrders(o.data); if (u.data) setUsers(u.data);
+    if (p.data) setProviders(p.data);
+    if (c.data) setCategories(c.data);
+    if (s.data) setServices(s.data);
+    if (o.data) setOrders(o.data as any);
+    if (ao.data) setAllOrders(ao.data as any);
+    if (u.data) setUsers(u.data);
+    if ((t as any).data) setTickets((t as any).data as any || []);
+    if ((n as any).data) setNotifications((n as any).data as any || []);
     setLoading(false);
   }, []);
 
   useEffect(() => { if (authed) fetchAll(); }, [authed, fetchAll]);
 
-  // ═══ SYNC: Step 1 - Fetch and show selection ═══
+  // ═══════════════════════════════════════
+  //  COMPUTED STATS
+  // ═══════════════════════════════════════
+  const stats = useMemo(() => {
+    const todayStr = today();
+    const todayOrders = allOrders.filter(o => o.created_at?.startsWith(todayStr));
+    const failedOrders = allOrders.filter(o => ["cancelled", "partial"].includes(o.status));
+    const todayRevenue = todayOrders.reduce((s, o) => s + (o.price || 0), 0);
+    const totalRevenue = allOrders.reduce((s, o) => s + (o.price || 0), 0);
+    const todayUsers = new Set(todayOrders.map(o => o.user_id)).size;
+    const avgOrderValue = todayOrders.length > 0 ? todayRevenue / todayOrders.length : 0;
+
+    const svcCount: Record<string, number> = {};
+    todayOrders.forEach(o => { svcCount[o.service_id] = (svcCount[o.service_id] || 0) + 1; });
+    const topServices = Object.entries(svcCount)
+      .sort((a, b) => b[1] - a[1]).slice(0, 5)
+      .map(([sid, count]) => ({ name: services.find(s => s.id === sid)?.name || sid.slice(0, 8), count }));
+
+    const userOrderCount: Record<string, number> = {};
+    allOrders.forEach(o => { userOrderCount[o.user_id] = (userOrderCount[o.user_id] || 0) + 1; });
+    const activeUsers = Object.entries(userOrderCount)
+      .sort((a, b) => b[1] - a[1]).slice(0, 5)
+      .map(([uid, count]) => ({ name: users.find(u => u.id === uid)?.username || uid.slice(0, 8), count }));
+
+    const topSpenders = [...users].sort((a, b) => b.total_spent - a.total_spent).slice(0, 5);
+
+    const months: { label: string; orders: number; revenue: number; profit: number }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(); d.setMonth(d.getMonth() - i);
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const label = d.toLocaleDateString("ar-EG", { month: "short" });
+      const mo = allOrders.filter(o => o.created_at?.startsWith(ym));
+      const rev = mo.reduce((s, o) => s + (o.price || 0), 0);
+      months.push({ label, orders: mo.length, revenue: rev, profit: rev * 0.3 });
+    }
+
+    return {
+      totalUsers: users.length, totalOrders: allOrders.length, failedOrders: failedOrders.length,
+      openTickets: tickets.filter(t => t.status === "open").length,
+      todayOrders: todayOrders.length, todayRevenue, todayUsers, avgOrderValue, totalRevenue,
+      topServices, activeUsers, topSpenders, months,
+      unreadNotifs: notifications.filter(n => !n.is_read).length,
+      newUsersToday: users.filter(u => u.created_at?.startsWith(todayStr)).length,
+    };
+  }, [allOrders, services, users, tickets, notifications]);
+
+  // ═══════════════════════════════════════
+  //  SYNC & CRUD FUNCTIONS
+  // ═══════════════════════════════════════
   async function openSyncModal(prov: Provider) {
     setSyncProvider(prov); setSyncLoading(true); setShowSyncModal(true); setSyncSearch("");
     try {
       const apiServices = await getProviderServices(prov.id!);
       if (!Array.isArray(apiServices)) { toast.error("فشل جلب الخدمات"); setShowSyncModal(false); return; }
-
-      // Group by category
       const catMap: Record<string, ApiService[]> = {};
-      for (const s of apiServices) {
-        (catMap[s.category] = catMap[s.category] || []).push({ ...s, selected: false });
-      }
-      const cats: ApiCategory[] = Object.entries(catMap).map(([name, svcs]) => ({
-        name, services: svcs, selected: false, expanded: false,
-      }));
-      setSyncCategories(cats);
+      for (const s of apiServices) (catMap[s.category] = catMap[s.category] || []).push({ ...s, selected: false });
+      setSyncCategories(Object.entries(catMap).map(([name, svcs]) => ({ name, services: svcs, selected: false, expanded: false })));
     } catch { toast.error("خطأ في الاتصال"); setShowSyncModal(false); }
     finally { setSyncLoading(false); }
   }
+  function toggleCatSelection(ci: number) { setSyncCategories(p => p.map((c, i) => { if (i !== ci) return c; const ns = !c.selected; return { ...c, selected: ns, services: c.services.map(s => ({ ...s, selected: ns })) }; })); }
+  function toggleSvcSelection(ci: number, si: number) { setSyncCategories(p => p.map((c, i) => { if (i !== ci) return c; const ns = c.services.map((s, j) => j === si ? { ...s, selected: !s.selected } : s); return { ...c, services: ns, selected: ns.every(s => s.selected) }; })); }
+  function toggleCatExpand(ci: number) { setSyncCategories(p => p.map((c, i) => i === ci ? { ...c, expanded: !c.expanded } : c)); }
+  function selectAllSync(v: boolean) { setSyncCategories(p => p.map(c => ({ ...c, selected: v, services: c.services.map(s => ({ ...s, selected: v })) }))); }
+  const selectedCount = syncCategories.reduce((a, c) => a + c.services.filter(s => s.selected).length, 0);
+  const totalCount = syncCategories.reduce((a, c) => a + c.services.length, 0);
 
-  // Toggle category selection (selects/deselects all services inside)
-  function toggleCatSelection(catIdx: number) {
-    setSyncCategories(prev => prev.map((c, i) => {
-      if (i !== catIdx) return c;
-      const newSel = !c.selected;
-      return { ...c, selected: newSel, services: c.services.map(s => ({ ...s, selected: newSel })) };
-    }));
-  }
-
-  // Toggle single service
-  function toggleSvcSelection(catIdx: number, svcIdx: number) {
-    setSyncCategories(prev => prev.map((c, ci) => {
-      if (ci !== catIdx) return c;
-      const newSvcs = c.services.map((s, si) => si === svcIdx ? { ...s, selected: !s.selected } : s);
-      return { ...c, services: newSvcs, selected: newSvcs.every(s => s.selected) };
-    }));
-  }
-
-  // Toggle expand
-  function toggleCatExpand(catIdx: number) {
-    setSyncCategories(prev => prev.map((c, i) => i === catIdx ? { ...c, expanded: !c.expanded } : c));
-  }
-
-  // Select all / Deselect all
-  function selectAllSync(val: boolean) {
-    setSyncCategories(prev => prev.map(c => ({ ...c, selected: val, services: c.services.map(s => ({ ...s, selected: val })) })));
-  }
-
-  // Count selected
-  const selectedCount = syncCategories.reduce((acc, c) => acc + c.services.filter(s => s.selected).length, 0);
-  const totalCount = syncCategories.reduce((acc, c) => acc + c.services.length, 0);
-
-  // ═══ SYNC: Step 2 - Import selected ═══
   async function importSelected() {
     if (!syncProvider || selectedCount === 0) { toast.error("اختر خدمات أولاً"); return; }
     setSyncing(true);
     try {
-      const selectedServices: (ApiService & { catName: string })[] = [];
-      for (const c of syncCategories) {
-        for (const s of c.services) {
-          if (s.selected) selectedServices.push({ ...s, catName: c.name });
-        }
-      }
-
-      // Ensure categories exist
-      const catNames = Array.from(new Set(selectedServices.map(s => s.catName)));
-      for (const name of catNames) {
-        const { data: ex } = await supabase.from("categories").select("id").eq("name", name).single();
-        if (!ex) await supabase.from("categories").insert({ name, sort_order: 0, is_active: true });
-      }
+      const sel: (ApiService & { catName: string })[] = [];
+      for (const c of syncCategories) for (const s of c.services) if (s.selected) sel.push({ ...s, catName: c.name });
+      const catNames = Array.from(new Set(sel.map(s => s.catName)));
+      for (const name of catNames) { const { data: ex } = await supabase.from("categories").select("id").eq("name", name).single(); if (!ex) await supabase.from("categories").insert({ name, sort_order: 0, is_active: true }); }
       const { data: allCats } = await supabase.from("categories").select("*");
-      const catIdMap: Record<string, string> = {};
-      (allCats || []).forEach((c: any) => { catIdMap[c.name] = c.id; });
-
+      const catIdMap: Record<string, string> = {}; (allCats || []).forEach((c: any) => { catIdMap[c.name] = c.id; });
       let added = 0, updated = 0;
-      for (const s of selectedServices) {
-        const { data: existing } = await supabase.from("services").select("id")
-          .eq("api_service_id", s.service).eq("provider_id", syncProvider.id).single();
-
-        const data = {
-          api_service_id: s.service, provider_id: syncProvider.id, name: s.name,
-          category_id: catIdMap[s.catName] || "", platform: s.catName,
-          price_per_1000: Number(s.rate), min_quantity: Number(s.min), max_quantity: Number(s.max),
-          can_refill: s.refill || false, can_cancel: s.cancel || false,
-          speed: s.type || "Default", guarantee_days: 0,
-          description: `${s.type} | $${s.rate}/1K${s.refill ? " | ♻️" : ""}${s.cancel ? " | ❌" : ""}`,
-          is_active: true, sort_order: s.service,
-        };
-
-        if (existing) { await supabase.from("services").update(data).eq("id", existing.id); updated++; }
-        else { await supabase.from("services").insert(data); added++; }
+      for (const s of sel) {
+        const { data: existing } = await supabase.from("services").select("id").eq("api_service_id", s.service).eq("provider_id", syncProvider.id).single();
+        const data = { api_service_id: s.service, provider_id: syncProvider.id, name: s.name, category_id: catIdMap[s.catName] || "", platform: s.catName, price_per_1000: Number(s.rate), min_quantity: Number(s.min), max_quantity: Number(s.max), can_refill: s.refill || false, can_cancel: s.cancel || false, speed: s.type || "Default", guarantee_days: 0, description: `${s.type} | $${s.rate}/1K${s.refill ? " | ♻️" : ""}${s.cancel ? " | ❌" : ""}`, is_active: true, sort_order: s.service };
+        if (existing) { await supabase.from("services").update(data).eq("id", existing.id); updated++; } else { await supabase.from("services").insert(data); added++; }
       }
-
-      toast.success(`تم! ${added} جديد، ${updated} محدّث`);
-      setShowSyncModal(false); fetchAll();
-    } catch (err) { console.error(err); toast.error("خطأ"); }
-    finally { setSyncing(false); }
+      toast.success(`تم! ${added} جديد، ${updated} محدّث`); setShowSyncModal(false); fetchAll();
+    } catch (err) { console.error(err); toast.error("خطأ"); } finally { setSyncing(false); }
   }
 
-  // ═══ Other functions ═══
-  async function refreshBalance(prov: Provider) {
-    const res = await getProviderBalance(prov.id!);
-    if (res?.balance) { await supabase.from("providers").update({ balance: Number(res.balance) }).eq("id", prov.id); toast.success(`$${Number(res.balance).toFixed(2)}`); fetchAll(); }
-    else toast.error("فشل");
-  }
+  async function refreshBalance(prov: Provider) { const res = await getProviderBalance(prov.id!); if (res?.balance) { await supabase.from("providers").update({ balance: Number(res.balance) }).eq("id", prov.id); toast.success(`$${Number(res.balance).toFixed(2)}`); fetchAll(); } else toast.error("فشل"); }
 
   async function updateOrderStatuses() {
     setSyncing(true);
     try {
-      const { data: pending } = await supabase.from("orders").select("*, service:services(provider_id)")
-        .in("status", ["pending", "processing", "in_progress"]).neq("api_order_id", "").limit(100);
+      const { data: pending } = await supabase.from("orders").select("*, service:services(provider_id)").in("status", ["pending", "processing", "in_progress"]).neq("api_order_id", "").limit(100);
       if (!pending?.length) { toast("لا توجد طلبات"); setSyncing(false); return; }
       const byProv: Record<string, any[]> = {};
       for (const o of pending) { const p = (o as any).service?.provider_id; if (p) (byProv[p] = byProv[p] || []).push(o); }
-      const sMap: Record<string, string> = { "Pending": "pending", "Processing": "processing", "In progress": "in_progress", "Completed": "completed", "Cancelled": "cancelled", "Partial": "partial", "Canceled": "cancelled" };
+      const sMap: Record<string, string> = { Pending: "pending", Processing: "processing", "In progress": "in_progress", Completed: "completed", Cancelled: "cancelled", Partial: "partial", Canceled: "cancelled" };
       let total = 0;
       for (const [pid, ords] of Object.entries(byProv)) {
         const st = await getMultiOrderStatus(pid, ords.map((o: any) => o.api_order_id));
@@ -271,35 +243,9 @@ export default function AdminPage() {
     } catch { toast.error("خطأ"); } finally { setSyncing(false); }
   }
 
-  // ═══ Delete All ═══
-  async function deleteAllCategories() {
-    if (!confirm("⚠️ هل أنت متأكد من حذف جميع الفئات؟ هذا سيحذف أيضاً ربط الخدمات بالفئات.")) return;
-    if (!confirm("تأكيد نهائي: حذف " + categories.length + " فئة؟")) return;
-    try {
-      await supabase.from("categories").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-      toast.success("تم حذف جميع الفئات"); fetchAll();
-    } catch { toast.error("خطأ"); }
-  }
-
-  async function deleteAllServices() {
-    if (!confirm("⚠️ هل أنت متأكد من حذف جميع الخدمات؟")) return;
-    if (!confirm("تأكيد نهائي: حذف " + services.length + " خدمة؟")) return;
-    try {
-      await supabase.from("services").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-      toast.success("تم حذف جميع الخدمات"); fetchAll();
-    } catch { toast.error("خطأ"); }
-  }
-
-  async function deleteAllCategoriesAndServices() {
-    if (!confirm("⚠️⚠️ هل أنت متأكد من حذف جميع الفئات والخدمات معاً؟ هذا لا يمكن التراجع عنه!")) return;
-    if (!confirm("تأكيد نهائي: حذف " + services.length + " خدمة و " + categories.length + " فئة؟")) return;
-    try {
-      await supabase.from("services").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-      await supabase.from("categories").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-      toast.success("تم حذف جميع الفئات والخدمات"); fetchAll();
-    } catch { toast.error("خطأ"); }
-  }
-
+  async function deleteAllCategories() { if (!confirm("⚠️ حذف جميع الفئات؟")) return; if (!confirm("تأكيد نهائي؟")) return; await supabase.from("categories").delete().neq("id", "00000000-0000-0000-0000-000000000000"); toast.success("تم"); fetchAll(); }
+  async function deleteAllServices() { if (!confirm("⚠️ حذف جميع الخدمات؟")) return; if (!confirm("تأكيد نهائي؟")) return; await supabase.from("services").delete().neq("id", "00000000-0000-0000-0000-000000000000"); toast.success("تم"); fetchAll(); }
+  async function deleteAllCategoriesAndServices() { if (!confirm("⚠️⚠️ حذف الكل؟")) return; if (!confirm("تأكيد نهائي؟")) return; await supabase.from("services").delete().neq("id", "00000000-0000-0000-0000-000000000000"); await supabase.from("categories").delete().neq("id", "00000000-0000-0000-0000-000000000000"); toast.success("تم"); fetchAll(); }
   async function saveProv() { try { if (editingProv?.id) await supabase.from("providers").update(provForm).eq("id", editingProv.id); else await supabase.from("providers").insert(provForm); toast.success("تم"); setShowProvForm(false); setEditingProv(null); setProvForm({ name: "", api_url: "", api_key: "", is_active: true, sort_order: 0 }); fetchAll(); } catch { toast.error("خطأ"); } }
   async function deleteProv(id: string) { if (!confirm("حذف؟")) return; await supabase.from("providers").delete().eq("id", id); fetchAll(); }
   async function saveCat() { try { if (editingCat?.id) await supabase.from("categories").update(catForm).eq("id", editingCat.id); else await supabase.from("categories").insert(catForm); toast.success("تم"); setShowCatForm(false); setEditingCat(null); setCatForm({ name: "", sort_order: 0, is_active: true }); fetchAll(); } catch { toast.error("خطأ"); } }
@@ -309,151 +255,331 @@ export default function AdminPage() {
   async function updateOrderStatus(id: string, status: string) { await supabase.from("orders").update({ status }).eq("id", id); fetchAll(); }
   async function updateBalance(uid: string) { const v = prompt("الرصيد الجديد:"); if (!v) return; await supabase.from("profiles").update({ balance: Number(v) }).eq("id", uid); toast.success("تم"); fetchAll(); }
 
-  // ── LOADING ──
-  if (!mounted) return (
+  async function replyTicket() {
+    if (!showTicketReply || !ticketReply.trim()) return;
+    await supabase.from("support_tickets").update({ admin_reply: ticketReply, status: "resolved", updated_at: new Date().toISOString() }).eq("id", showTicketReply.id);
+    toast.success("تم الرد"); setShowTicketReply(null); setTicketReply(""); fetchAll();
+  }
+  async function updateTicketStatus(id: string, status: string) { await supabase.from("support_tickets").update({ status, updated_at: new Date().toISOString() }).eq("id", id); fetchAll(); }
+  async function markNotifRead(id: string) { await supabase.from("admin_notifications").update({ is_read: true }).eq("id", id); setNotifications(p => p.map(n => n.id === id ? { ...n, is_read: true } : n)); }
+  async function markAllRead() { await supabase.from("admin_notifications").update({ is_read: true }).eq("is_read", false); setNotifications(p => p.map(n => ({ ...n, is_read: true }))); toast.success("تم"); }
+  async function clearNotifs() { if (!confirm("حذف جميع الإشعارات؟")) return; await supabase.from("admin_notifications").delete().neq("id", "00000000-0000-0000-0000-000000000000"); setNotifications([]); toast.success("تم"); }
+
+  // ═══════════════════════════════════════
+  //  BAR CHART SVG
+  // ═══════════════════════════════════════
+  function BarChart({ data, dataKey, color, label }: { data: { label: string;[k: string]: any }[]; dataKey: string; color: string; label: string }) {
+    const max = Math.max(...data.map(d => d[dataKey]), 1);
+    return (
+      <div>
+        <div className="text-xs text-gray-500 mb-3 font-bold">{label}</div>
+        <div className="flex items-end gap-2 h-36">
+          {data.map((d, i) => {
+            const h = (d[dataKey] / max) * 100;
+            return (
+              <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                <span className="text-[10px] font-bold" style={{ color }}>{d[dataKey] > 0 ? (dataKey === "revenue" || dataKey === "profit" ? `$${d[dataKey].toFixed(0)}` : d[dataKey]) : ""}</span>
+                <div className="w-full rounded-t-lg transition-all duration-700 ease-out" style={{ height: `${Math.max(h, 3)}%`, background: `linear-gradient(to top, ${color}25, ${color})`, boxShadow: `0 0 12px ${color}30` }} />
+                <span className="text-[10px] text-gray-500">{d.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════
+  //  LOADING STATE
+  // ═══════════════════════════════════════
+  if (!mounted || checkingAuth) return (
     <div className="min-h-screen flex items-center justify-center bg-dark-900">
-      <div className="w-10 h-10 rounded-full border-4 border-t-transparent animate-spin" style={{ borderColor: `${A}40`, borderTopColor: "transparent" }} />
-    </div>
-  );
-
-  // ── LOGIN ──
-  if (!authed) return (
-    <div className="min-h-screen flex items-center justify-center bg-dark-900 bg-grid p-4" style={{ "--brand-rgb": STORE.colorRgb } as any}>
-      <div className="w-full max-w-sm card-dark p-8 text-center">
-        <h1 className="font-display text-2xl font-800 mb-1" style={{ color: A }}>Admin Panel</h1>
-        <p className="text-gray-500 mb-6 text-sm">لوحة الإدارة</p>
-
-        {/* Step 1: Password */}
-        {loginStep === "password" && (
-          <div className="space-y-4">
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-              placeholder="كلمة المرور" className="admin-input" dir="ltr" />
-            <button onClick={handleLogin} className="w-full py-3 rounded-xl font-bold text-white" style={{ background: A }}>دخول</button>
-            <button onClick={handleSetup2FA} className="text-xs text-gray-600 hover:text-gray-400 transition">⚙️ إعداد المصادقة الثنائية</button>
-          </div>
-        )}
-
-        {/* Step 2: 2FA Code */}
-        {loginStep === "2fa" && (
-          <div className="space-y-4">
-            <div className="text-4xl mb-2">🔐</div>
-            <p className="text-gray-400 text-sm mb-2">أدخل كود المصادقة الثنائية من تطبيق Google Authenticator</p>
-            <input type="text" value={totpCode} maxLength={6}
-              onChange={(e) => setTotpCode(e.target.value.replace(/[^0-9]/g, ""))}
-              onKeyDown={(e) => e.key === "Enter" && handleVerify2FA()}
-              placeholder="000000" className="admin-input text-center !text-2xl !tracking-[0.5em] !font-mono" dir="ltr" />
-            <button onClick={handleVerify2FA} disabled={totpCode.length !== 6}
-              className="w-full py-3 rounded-xl font-bold text-white disabled:opacity-40" style={{ background: A }}>
-              تحقق
-            </button>
-            <button onClick={() => { setLoginStep("password"); setTotpCode(""); }} className="text-xs text-gray-500 hover:text-gray-300">← رجوع</button>
-          </div>
-        )}
-
-        {/* Step: 2FA Setup */}
-        {loginStep === "setup2fa" && setup2FA && (
-          <div className="space-y-4 text-right">
-            <div className="text-center">
-              <div className="text-3xl mb-2">📱</div>
-              <h3 className="text-white font-bold mb-1">إعداد المصادقة الثنائية</h3>
-              {setup2FA.configured ? (
-                <p className="text-green-400 text-sm">✅ المصادقة الثنائية مفعّلة بالفعل</p>
-              ) : (
-                <p className="text-yellow-400 text-sm">⚠️ غير مفعّلة بعد</p>
-              )}
-            </div>
-
-            <div className="text-center">
-              <p className="text-gray-400 text-sm mb-3">امسح هذا الكود بتطبيق Google Authenticator:</p>
-              <img src={setup2FA.qrUrl} alt="QR Code" className="mx-auto rounded-lg mb-3" style={{ background: "white", padding: "8px" }} />
-            </div>
-
-            <div>
-              <p className="text-gray-400 text-xs mb-1">أو أدخل هذا السر يدوياً:</p>
-              <div className="admin-input !bg-dark-800 text-xs font-mono text-center break-all" dir="ltr" onClick={(e) => {
-                navigator.clipboard.writeText(setup2FA.secret); toast.success("تم النسخ!");
-              }} style={{ cursor: "pointer" }}>
-                {setup2FA.secret}
-              </div>
-              <p className="text-gray-600 text-xs mt-1">اضغط للنسخ</p>
-            </div>
-
-            {!setup2FA.configured && (
-              <div className="rounded-xl p-3 text-xs text-right" style={{ background: "#f59e0b15", border: "1px solid #f59e0b30" }}>
-                <p className="text-yellow-400 font-bold mb-1">⚠️ خطوة مهمة:</p>
-                <p className="text-gray-400">بعد مسح الكود، أضف هذا المتغير في <strong>Vercel → Settings → Environment Variables</strong>:</p>
-                <div className="mt-2 admin-input !bg-dark-900 font-mono text-xs break-all" dir="ltr" onClick={() => {
-                  navigator.clipboard.writeText(`ADMIN_TOTP_SECRET=${setup2FA.secret}`); toast.success("تم النسخ!");
-                }} style={{ cursor: "pointer" }}>
-                  ADMIN_TOTP_SECRET={setup2FA.secret}
-                </div>
-                <p className="text-gray-500 mt-1">ثم اعمل Redeploy</p>
-              </div>
-            )}
-
-            <button onClick={() => { setLoginStep("password"); setSetup2FA(null); }} className="w-full py-2.5 rounded-xl font-bold text-sm border border-white/10 text-gray-400 hover:bg-white/5">← رجوع لتسجيل الدخول</button>
-          </div>
-        )}
-
-        <Link href="/" className="block mt-4 text-sm text-gray-500">← المتجر</Link>
+      <div className="text-center">
+        <div className="w-12 h-12 rounded-full border-4 border-t-transparent animate-spin mx-auto mb-4" style={{ borderColor: `${A}40`, borderTopColor: "transparent" }} />
+        <p className="text-gray-500 text-sm">جاري التحقق...</p>
       </div>
     </div>
   );
 
+  // ═══════════════════════════════════════
+  //  LOGIN SCREEN
+  // ═══════════════════════════════════════
+  if (!authed) return (
+    <div className="min-h-screen flex items-center justify-center bg-dark-900 bg-grid p-4" style={{ "--brand-rgb": STORE.colorRgb } as any}>
+      <div className="w-full max-w-sm card-dark p-8 text-center relative overflow-hidden">
+        <div className="absolute -top-20 left-1/2 -translate-x-1/2 w-40 h-40 rounded-full blur-[80px] pointer-events-none" style={{ background: A, opacity: 0.15 }} />
+        <div className="relative">
+          <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center text-2xl" style={{ background: `${A}15`, border: `1px solid ${A}30` }}>🛡️</div>
+          <h1 className="font-display text-2xl font-800 mb-1" style={{ color: A }}>Admin Panel</h1>
+          <p className="text-gray-500 mb-6 text-sm">لوحة إدارة {STORE.nameAr}</p>
+          <div className="space-y-4">
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleLogin()} placeholder="كلمة المرور" className="admin-input text-center" dir="ltr" autoFocus />
+            <button onClick={handleLogin} disabled={loginLoading} className="w-full py-3.5 rounded-xl font-bold text-white transition-all hover:brightness-110 disabled:opacity-60" style={{ background: `linear-gradient(135deg, ${A}, ${A}cc)` }}>
+              {loginLoading ? "جاري الدخول..." : "دخول ←"}
+            </button>
+          </div>
+          <Link href="/" className="block mt-5 text-sm text-gray-600 hover:text-gray-400 transition">← العودة للمتجر</Link>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ═══════════════════════════════════════
+  //  MAIN DASHBOARD LAYOUT
+  // ═══════════════════════════════════════
   const TABS = [
-    { k: "providers", l: "🔌 المزوّدين" }, { k: "categories", l: "📁 الفئات" },
-    { k: "services", l: "📦 الخدمات" }, { k: "orders", l: "📋 الطلبات" }, { k: "users", l: "👥 المستخدمين" },
+    { k: "dashboard", l: "📊 الرئيسية", badge: 0 },
+    { k: "reports", l: "📈 التقارير", badge: 0 },
+    { k: "notifications", l: "🔔 إشعارات", badge: stats.unreadNotifs },
+    { k: "providers", l: "🔌 المزوّدين", badge: 0 },
+    { k: "categories", l: "📁 الفئات", badge: 0 },
+    { k: "services", l: "📦 الخدمات", badge: services.length },
+    { k: "orders", l: "📋 الطلبات", badge: orders.length },
+    { k: "users", l: "👥 المستخدمين", badge: users.length },
+    { k: "tickets", l: "🎫 التذاكر", badge: stats.openTickets },
   ];
 
-  // Filtered sync categories
   const filteredSyncCats = syncSearch.trim()
     ? syncCategories.map(c => ({ ...c, services: c.services.filter(s => s.name.toLowerCase().includes(syncSearch.toLowerCase()) || c.name.toLowerCase().includes(syncSearch.toLowerCase())) })).filter(c => c.services.length > 0)
     : syncCategories;
 
+  const NI: Record<string, string> = { new_order: "🛒", new_user: "👤", failed_order: "❌", new_ticket: "🎫", low_balance: "💰" };
+  const NC: Record<string, string> = { new_order: "#10b981", new_user: "#3b82f6", failed_order: "#ef4444", new_ticket: "#f59e0b", low_balance: "#f97316" };
+  const TS: Record<string, { l: string; c: string }> = { open: { l: "مفتوحة", c: "#f59e0b" }, in_progress: { l: "قيد المعالجة", c: "#3b82f6" }, resolved: { l: "تم الحل", c: "#10b981" }, closed: { l: "مغلقة", c: "#6b7280" } };
+  const TP: Record<string, { l: string; c: string }> = { low: { l: "منخفض", c: "#6b7280" }, normal: { l: "عادي", c: "#3b82f6" }, high: { l: "عالي", c: "#f59e0b" }, urgent: { l: "عاجل", c: "#ef4444" } };
+  const rankColors = ["#ffd700", "#c0c0c0", "#cd7f32", "#666", "#555"];
+
   return (
     <div className="min-h-screen bg-dark-900" style={{ "--brand-color": STORE.color, "--brand-rgb": STORE.colorRgb } as any}>
+      {/* HEADER */}
       <header className="sticky top-0 z-40 backdrop-blur-xl bg-dark-900/80 border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Link href="/" className="text-gray-500 hover:text-white text-sm">← الموقع</Link>
-            <span className="font-display font-800" style={{ color: A }}>Admin Panel</span>
+            <Link href="/" className="text-gray-500 hover:text-white text-sm transition">← الموقع</Link>
+            <div className="w-px h-5 bg-white/10" />
+            <span className="font-display font-800 text-lg" style={{ color: A }}>Admin</span>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={updateOrderStatuses} disabled={syncing} className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50" style={{ background: "#3b82f6" }}>{syncing ? "..." : "📊 تحديث الطلبات"}</button>
-            <button onClick={handleLogout} className="text-gray-500 hover:text-red-400 text-sm">خروج</button>
+            <button onClick={updateOrderStatuses} disabled={syncing} className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50 transition hover:brightness-110" style={{ background: "#3b82f6" }}>{syncing ? "⏳" : "🔄"} تحديث الطلبات</button>
+            <button onClick={fetchAll} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white/5 text-gray-400 hover:bg-white/10 transition">♻️</button>
+            <button onClick={handleLogout} className="text-gray-500 hover:text-red-400 text-sm transition">خروج</button>
           </div>
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-          {TABS.map((t) => (
+      {/* TABS */}
+      <div className="max-w-7xl mx-auto px-4 pt-4">
+        <div className="flex gap-1.5 overflow-x-auto pb-3" style={{ scrollbarWidth: "none" }}>
+          {TABS.map(t => (
             <button key={t.k} onClick={() => setTab(t.k as any)}
-              className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition ${tab === t.k ? "text-white" : "text-gray-500"}`}
-              style={tab === t.k ? { background: `${A}25`, color: A } : {}}>{t.l}</button>
+              className={`relative px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${tab === t.k ? "text-white" : "text-gray-500 hover:text-gray-300"}`}
+              style={tab === t.k ? { background: `${A}20`, color: A, boxShadow: `0 0 20px ${A}10` } : {}}>
+              {t.l}
+              {t.badge > 0 && <span className="absolute -top-1 -left-1 min-w-[18px] h-[18px] rounded-full text-[10px] flex items-center justify-center text-white px-1 font-bold" style={{ background: t.k === "notifications" ? "#ef4444" : A }}>{t.badge > 99 ? "99+" : t.badge}</span>}
+            </button>
           ))}
         </div>
+      </div>
 
-        {loading && <div className="text-center py-12 text-gray-500">جاري التحميل...</div>}
+      <div className="max-w-7xl mx-auto px-4 py-4">
+        {loading && <div className="text-center py-16 text-gray-500"><div className="w-8 h-8 rounded-full border-3 border-t-transparent animate-spin mx-auto mb-3" style={{ borderColor: `${A}40`, borderTopColor: "transparent" }} />جاري التحميل...</div>}
+
+        {/* ═══ DASHBOARD OVERVIEW ═══ */}
+        {!loading && tab === "dashboard" && (
+          <div className="space-y-6 animate-fade-in">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                { label: "المستخدمين", value: stats.totalUsers, icon: "👥", color: "#3b82f6", sub: `+${stats.newUsersToday} اليوم` },
+                { label: "إجمالي الطلبات", value: stats.totalOrders, icon: "📦", color: "#8b5cf6", sub: `${stats.todayOrders} اليوم` },
+                { label: "طلبات فاشلة", value: stats.failedOrders, icon: "⚠️", color: "#ef4444", sub: `${((stats.failedOrders / Math.max(stats.totalOrders, 1)) * 100).toFixed(1)}%` },
+                { label: "تذاكر مفتوحة", value: stats.openTickets, icon: "🎫", color: "#f59e0b", sub: `${tickets.length} إجمالي` },
+              ].map((s, i) => (
+                <div key={i} className="card-dark p-5 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-0.5" style={{ background: `linear-gradient(to right, ${s.color}, transparent)` }} />
+                  <div className="flex items-start justify-between mb-3">
+                    <span className="text-2xl">{s.icon}</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: `${s.color}15`, color: s.color }}>{s.sub}</span>
+                  </div>
+                  <div className="text-3xl font-display font-800 text-white mb-1">{s.value.toLocaleString()}</div>
+                  <div className="text-sm text-gray-500">{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="lg:col-span-2 card-dark p-6">
+                <h3 className="font-display font-800 text-white text-lg mb-4">💰 الإيرادات</h3>
+                <div className="grid grid-cols-3 gap-4">
+                  {[
+                    { label: "إجمالي الإيرادات", value: `$${stats.totalRevenue.toFixed(2)}`, color: A, bg: `${A}08`, bc: `${A}15` },
+                    { label: "إيرادات اليوم", value: `$${stats.todayRevenue.toFixed(2)}`, color: "#10b981", bg: "#10b98108", bc: "#10b98115" },
+                    { label: "الربح التقديري", value: `$${(stats.totalRevenue * 0.3).toFixed(2)}`, color: "#8b5cf6", bg: "#8b5cf608", bc: "#8b5cf615" },
+                  ].map((r, i) => (
+                    <div key={i} className="rounded-xl p-4" style={{ background: r.bg, border: `1px solid ${r.bc}` }}>
+                      <div className="text-sm text-gray-400 mb-1">{r.label}</div>
+                      <div className="text-2xl font-display font-800" style={{ color: r.color }}>{r.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="card-dark p-6">
+                <h3 className="font-display font-800 text-white text-lg mb-4">🔌 أرصدة المزوّدين</h3>
+                <div className="space-y-3">
+                  {providers.length === 0 ? <div className="text-gray-600 text-sm">لا يوجد مزوّدين</div> :
+                    providers.map(p => (
+                      <div key={p.id} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${p.is_active ? "bg-green-400" : "bg-red-400"}`} />
+                          <span className="text-gray-300 text-sm">{p.name}</span>
+                        </div>
+                        <span className="font-display font-bold text-yellow-400 text-sm">${(p.balance || 0).toFixed(2)}</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="card-dark p-6">
+              <h3 className="font-display font-800 text-white text-lg mb-4">🕐 آخر الطلبات</h3>
+              <div className="space-y-2">
+                {orders.slice(0, 8).map(o => {
+                  const st = ORDER_STATUSES[o.status] || ORDER_STATUSES.pending;
+                  return (
+                    <div key={o.id} className="flex items-center gap-3 py-2 border-b border-white/5 last:border-0">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs shrink-0" style={{ background: `${st.color}15`, color: st.color }}>{st.label.charAt(0)}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-gray-300 truncate">{(o as any).service?.name || "—"}</div>
+                        <div className="text-xs text-gray-600">الكمية: {o.quantity}</div>
+                      </div>
+                      <div className="text-left shrink-0">
+                        <div className="text-sm font-bold" style={{ color: A }}>${o.price.toFixed(2)}</div>
+                        <div className="text-[10px] text-gray-600">{timeAgo(o.created_at!)}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {orders.length === 0 && <div className="text-center py-6 text-gray-600">لا توجد طلبات</div>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══ REPORTS ═══ */}
+        {!loading && tab === "reports" && (
+          <div className="space-y-6 animate-fade-in">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                { label: "طلبات اليوم", value: stats.todayOrders, icon: "📦", color: "#3b82f6" },
+                { label: "إيرادات اليوم", value: `$${stats.todayRevenue.toFixed(2)}`, icon: "💵", color: "#10b981" },
+                { label: "عملاء اليوم", value: stats.todayUsers, icon: "👥", color: "#8b5cf6" },
+                { label: "متوسط قيمة الطلب", value: `$${stats.avgOrderValue.toFixed(2)}`, icon: "📊", color: "#f59e0b" },
+              ].map((s, i) => (
+                <div key={i} className="card-dark p-5">
+                  <div className="flex items-center gap-2 mb-3"><span className="text-xl">{s.icon}</span><span className="text-sm text-gray-500">{s.label}</span></div>
+                  <div className="text-2xl font-display font-800 text-white">{typeof s.value === "number" ? s.value.toLocaleString() : s.value}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="card-dark p-6">
+                <h3 className="font-display font-800 text-white mb-4">🏆 أفضل 5 خدمات اليوم</h3>
+                <div className="space-y-3">
+                  {stats.topServices.length === 0 ? <div className="text-gray-600 text-sm text-center py-4">لا توجد طلبات اليوم</div> :
+                    stats.topServices.map((s, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold" style={{ background: `${rankColors[i]}25`, color: rankColors[i] }}>#{i + 1}</div>
+                        <div className="flex-1 min-w-0 text-sm text-gray-300 truncate">{s.name}</div>
+                        <div className="text-sm font-bold" style={{ color: A }}>{s.count}</div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+              <div className="card-dark p-6">
+                <h3 className="font-display font-800 text-white mb-4">⚡ الأكثر نشاطاً</h3>
+                <div className="space-y-3">
+                  {stats.activeUsers.map((u, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: `${rankColors[i]}25`, color: rankColors[i] }}>{i + 1}</div>
+                      <span className="text-sm text-gray-300 flex-1 truncate">{u.name}</span>
+                      <span className="text-sm font-bold text-blue-400">{u.count} طلب</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="card-dark p-6">
+                <h3 className="font-display font-800 text-white mb-4">💎 أكثر إنفاقاً</h3>
+                <div className="space-y-3">
+                  {stats.topSpenders.map((u, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: `${rankColors[i]}25`, color: rankColors[i] }}>{i + 1}</div>
+                      <span className="text-sm text-gray-300 flex-1 truncate">{u.username}</span>
+                      <span className="text-sm font-bold text-green-400">${u.total_spent.toFixed(2)}</span>
+                    </div>
+                  ))}
+                  {stats.topSpenders.length === 0 && <div className="text-gray-600 text-sm text-center py-4">لا يوجد بيانات</div>}
+                </div>
+              </div>
+            </div>
+
+            <div className="card-dark p-6">
+              <h3 className="font-display font-800 text-white text-lg mb-6">📈 التقارير الشهرية (آخر 6 أشهر)</h3>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <BarChart data={stats.months} dataKey="orders" color="#3b82f6" label="عدد الطلبات" />
+                <BarChart data={stats.months} dataKey="revenue" color="#10b981" label="إجمالي الإيرادات" />
+                <BarChart data={stats.months} dataKey="profit" color="#8b5cf6" label="الربح التقديري" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══ NOTIFICATIONS ═══ */}
+        {!loading && tab === "notifications" && (
+          <div className="animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-300">🔔 الإشعارات ({notifications.length})</h2>
+              <div className="flex gap-2">
+                {stats.unreadNotifs > 0 && <button onClick={markAllRead} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-500/15 text-blue-400">✓ قراءة الكل</button>}
+                {notifications.length > 0 && <button onClick={clearNotifs} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-500/15 text-red-400">🗑️ مسح</button>}
+              </div>
+            </div>
+            <div className="space-y-2">
+              {notifications.map(n => (
+                <div key={n.id} onClick={() => !n.is_read && markNotifRead(n.id)}
+                  className={`card-dark p-4 flex items-start gap-3 cursor-pointer transition ${!n.is_read ? "" : "opacity-60"}`}
+                  style={!n.is_read ? { borderRight: `3px solid ${NC[n.type] || A}` } : {}}>
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0" style={{ background: `${NC[n.type] || A}15` }}>{NI[n.type] || "📌"}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-sm font-bold text-white">{n.title}</span>
+                      {!n.is_read && <span className="w-2 h-2 rounded-full bg-red-500" />}
+                    </div>
+                    <div className="text-xs text-gray-400">{n.message}</div>
+                  </div>
+                  <span className="text-[10px] text-gray-600 shrink-0">{timeAgo(n.created_at)}</span>
+                </div>
+              ))}
+              {notifications.length === 0 && <div className="card-dark p-16 text-center"><div className="text-4xl mb-3">🔕</div><div className="text-gray-500">لا توجد إشعارات</div></div>}
+            </div>
+          </div>
+        )}
 
         {/* ═══ PROVIDERS ═══ */}
         {!loading && tab === "providers" && (<>
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold text-gray-300">المزوّدين</h2>
+            <h2 className="text-lg font-bold text-gray-300">المزوّدين ({providers.length})</h2>
             <button onClick={() => { setEditingProv(null); setProvForm({ name: "", api_url: "", api_key: "", is_active: true, sort_order: 0 }); setShowProvForm(true); }} className="px-4 py-2 rounded-xl text-sm font-bold text-white" style={{ background: A }}>+ مزوّد</button>
           </div>
           <div className="space-y-3">
-            {providers.map((p) => (
+            {providers.map(p => (
               <div key={p.id} className="card-dark p-5">
                 <div className="flex items-center justify-between mb-2">
-                  <div><span className="text-white font-display font-800">{p.name}</span>
-                    <span className={`mr-2 text-xs px-2 py-0.5 rounded ${p.is_active ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>{p.is_active ? "مفعّل" : "معطّل"}</span></div>
-                  <div className="font-display font-bold" style={{ color: "#f59e0b" }}>${(p.balance || 0).toFixed(2)}</div>
+                  <div><span className="text-white font-display font-800">{p.name}</span><span className={`mr-2 text-xs px-2 py-0.5 rounded ${p.is_active ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>{p.is_active ? "مفعّل" : "معطّل"}</span></div>
+                  <div className="font-display font-bold text-yellow-400">${(p.balance || 0).toFixed(2)}</div>
                 </div>
                 <div className="text-gray-500 text-xs mb-3" dir="ltr">{p.api_url}</div>
                 <div className="flex flex-wrap gap-2">
-                  <button onClick={() => openSyncModal(p)} disabled={syncing} className="text-xs px-3 py-1.5 rounded-lg bg-green-500/15 text-green-400 hover:bg-green-500/25 disabled:opacity-50">🔄 مزامنة الخدمات</button>
+                  <button onClick={() => openSyncModal(p)} disabled={syncing} className="text-xs px-3 py-1.5 rounded-lg bg-green-500/15 text-green-400 hover:bg-green-500/25 disabled:opacity-50">🔄 مزامنة</button>
                   <button onClick={() => refreshBalance(p)} className="text-xs px-3 py-1.5 rounded-lg bg-yellow-500/15 text-yellow-400">💰 رصيد</button>
                   <button onClick={() => { setEditingProv(p); setProvForm({ ...p }); setShowProvForm(true); }} className="text-xs px-3 py-1.5 rounded-lg bg-blue-500/15 text-blue-400">تعديل</button>
                   <button onClick={() => deleteProv(p.id!)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/15 text-red-400">حذف</button>
@@ -469,14 +595,11 @@ export default function AdminPage() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold text-gray-300">الفئات ({categories.length})</h2>
             <div className="flex gap-2">
-              {categories.length > 0 && (<>
-                <button onClick={deleteAllCategoriesAndServices} className="px-4 py-2 rounded-xl text-sm font-bold bg-red-600/20 text-red-400 hover:bg-red-600/30 border border-red-600/30 transition">🗑️ حذف الكل (فئات + خدمات)</button>
-                <button onClick={deleteAllCategories} className="px-4 py-2 rounded-xl text-sm font-bold bg-red-500/15 text-red-400 hover:bg-red-500/25 transition">حذف جميع الفئات</button>
-              </>)}
+              {categories.length > 0 && (<><button onClick={deleteAllCategoriesAndServices} className="px-3 py-2 rounded-xl text-xs font-bold bg-red-600/20 text-red-400 border border-red-600/30">🗑️ حذف الكل</button><button onClick={deleteAllCategories} className="px-3 py-2 rounded-xl text-xs font-bold bg-red-500/15 text-red-400">حذف الفئات</button></>)}
               <button onClick={() => { setEditingCat(null); setCatForm({ name: "", sort_order: 0, is_active: true }); setShowCatForm(true); }} className="px-4 py-2 rounded-xl text-sm font-bold text-white" style={{ background: A }}>+ فئة</button>
             </div>
           </div>
-          <div className="space-y-2">{categories.map((c) => (
+          <div className="space-y-2">{categories.map(c => (
             <div key={c.id} className="card-dark p-4 flex items-center justify-between">
               <div><span className="text-white font-bold">{c.name}</span> <span className={`mr-2 text-xs px-2 py-0.5 rounded ${c.is_active ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>{c.is_active ? "✓" : "✗"}</span></div>
               <div className="flex gap-2">
@@ -492,19 +615,14 @@ export default function AdminPage() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold text-gray-300">الخدمات ({services.length})</h2>
             <div className="flex gap-2">
-              {services.length > 0 && (
-                <button onClick={deleteAllServices} className="px-4 py-2 rounded-xl text-sm font-bold bg-red-500/15 text-red-400 hover:bg-red-500/25 transition">🗑️ حذف جميع الخدمات</button>
-              )}
+              {services.length > 0 && <button onClick={deleteAllServices} className="px-3 py-2 rounded-xl text-xs font-bold bg-red-500/15 text-red-400">🗑️ حذف الكل</button>}
               <button onClick={() => { setEditingSvc(null); setSvcForm({ category_id: "", provider_id: "", name: "", platform: "", api_service_id: 0, price_per_1000: 0, min_quantity: 10, max_quantity: 100000, speed: "Default", guarantee_days: 0, description: "", can_refill: false, can_cancel: false, is_active: true, sort_order: 0 }); setShowSvcForm(true); }} className="px-4 py-2 rounded-xl text-sm font-bold text-white" style={{ background: A }}>+ خدمة</button>
             </div>
           </div>
           <div className="overflow-x-auto"><table className="w-full text-xs">
-            <thead><tr className="border-b border-white/5 text-gray-500">
-              <th className="py-2 px-2 text-right">ID</th><th className="py-2 px-2 text-right">الاسم</th><th className="py-2 px-2 text-right">المزوّد</th>
-              <th className="py-2 px-2 text-right">$/1K</th><th className="py-2 px-2 text-right">-</th>
-            </tr></thead>
-            <tbody>{services.map((s) => (
-              <tr key={s.id} className="border-b border-white/5">
+            <thead><tr className="border-b border-white/5 text-gray-500"><th className="py-2 px-2 text-right">ID</th><th className="py-2 px-2 text-right">الاسم</th><th className="py-2 px-2 text-right">المزوّد</th><th className="py-2 px-2 text-right">$/1K</th><th className="py-2 px-2 text-right">-</th></tr></thead>
+            <tbody>{services.map(s => (
+              <tr key={s.id} className="border-b border-white/5 hover:bg-white/[0.02]">
                 <td className="py-2 px-2 text-gray-500 font-mono">{s.api_service_id}</td>
                 <td className="py-2 px-2 text-gray-300 max-w-[250px] truncate">{s.name}</td>
                 <td className="py-2 px-2 text-purple-400">{(s as any).provider?.name || "-"}</td>
@@ -521,21 +639,15 @@ export default function AdminPage() {
         {/* ═══ ORDERS ═══ */}
         {!loading && tab === "orders" && (
           <div className="overflow-x-auto"><table className="w-full text-xs">
-            <thead><tr className="border-b border-white/5 text-gray-500">
-              <th className="py-2 px-2 text-right">API#</th><th className="py-2 px-2 text-right">الخدمة</th>
-              <th className="py-2 px-2 text-right">الكمية</th><th className="py-2 px-2 text-right">$</th>
-              <th className="py-2 px-2 text-right">الحالة</th><th className="py-2 px-2 text-right">التاريخ</th>
-            </tr></thead>
-            <tbody>{orders.map((o) => { const st = ORDER_STATUSES[o.status] || ORDER_STATUSES.pending; return (
-              <tr key={o.id} className="border-b border-white/5">
+            <thead><tr className="border-b border-white/5 text-gray-500"><th className="py-2 px-2 text-right">API#</th><th className="py-2 px-2 text-right">الخدمة</th><th className="py-2 px-2 text-right">الكمية</th><th className="py-2 px-2 text-right">$</th><th className="py-2 px-2 text-right">الحالة</th><th className="py-2 px-2 text-right">التاريخ</th></tr></thead>
+            <tbody>{orders.map(o => { const st = ORDER_STATUSES[o.status] || ORDER_STATUSES.pending; return (
+              <tr key={o.id} className="border-b border-white/5 hover:bg-white/[0.02]">
                 <td className="py-2 px-2 text-gray-500 font-mono">{o.api_order_id || o.id?.slice(0, 8)}</td>
                 <td className="py-2 px-2 text-gray-300">{(o as any).service?.name || "-"}</td>
                 <td className="py-2 px-2 text-white">{o.quantity}</td>
                 <td className="py-2 px-2 font-bold" style={{ color: A }}>${o.price.toFixed(2)}</td>
-                <td className="py-2 px-2"><select value={o.status} onChange={(e) => updateOrderStatus(o.id!, e.target.value)} className="rounded px-1 py-0.5 bg-dark-700 border-0 text-xs" style={{ color: st.color }}>
-                  {Object.entries(ORDER_STATUSES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                </select></td>
-                <td className="py-2 px-2 text-gray-500">{new Date(o.created_at!).toLocaleDateString("ar-EG")}</td>
+                <td className="py-2 px-2"><select value={o.status} onChange={e => updateOrderStatus(o.id!, e.target.value)} className="rounded px-1 py-0.5 bg-dark-700 border-0 text-xs" style={{ color: st.color }}>{Object.entries(ORDER_STATUSES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></td>
+                <td className="py-2 px-2 text-gray-500">{formatDate(o.created_at!)}</td>
               </tr>); })}</tbody>
           </table></div>
         )}
@@ -543,43 +655,80 @@ export default function AdminPage() {
         {/* ═══ USERS ═══ */}
         {!loading && tab === "users" && (
           <div className="overflow-x-auto"><table className="w-full text-sm">
-            <thead><tr className="border-b border-white/5 text-gray-500">
-              <th className="py-2 px-2 text-right">المستخدم</th><th className="py-2 px-2 text-right">الرصيد</th>
-              <th className="py-2 px-2 text-right">الإنفاق</th><th className="py-2 px-2 text-right">-</th>
-            </tr></thead>
-            <tbody>{users.map((u) => (
-              <tr key={u.id} className="border-b border-white/5">
+            <thead><tr className="border-b border-white/5 text-gray-500"><th className="py-2 px-2 text-right">المستخدم</th><th className="py-2 px-2 text-right">الاسم</th><th className="py-2 px-2 text-right">الرصيد</th><th className="py-2 px-2 text-right">الإنفاق</th><th className="py-2 px-2 text-right">المستوى</th><th className="py-2 px-2 text-right">التاريخ</th><th className="py-2 px-2 text-right">-</th></tr></thead>
+            <tbody>{users.map(u => (
+              <tr key={u.id} className="border-b border-white/5 hover:bg-white/[0.02]">
                 <td className="py-2 px-2 text-white font-bold">{u.username}</td>
-                <td className="py-2 px-2" style={{ color: STORE.color }}>${u.balance.toFixed(2)}</td>
+                <td className="py-2 px-2 text-gray-400">{u.full_name || "-"}</td>
+                <td className="py-2 px-2 font-bold" style={{ color: P }}>${u.balance.toFixed(2)}</td>
                 <td className="py-2 px-2 text-gray-400">${u.total_spent.toFixed(2)}</td>
-                <td className="py-2 px-2"><button onClick={() => updateBalance(u.id)} className="px-2 py-1 rounded bg-green-500/15 text-green-400 text-xs">تعديل الرصيد</button></td>
+                <td className="py-2 px-2"><span className="px-2 py-0.5 rounded-full text-xs" style={{ background: `${A}15`, color: A }}>Lv.{u.level}</span></td>
+                <td className="py-2 px-2 text-gray-500 text-xs">{u.created_at ? formatDate(u.created_at) : "-"}</td>
+                <td className="py-2 px-2"><button onClick={() => updateBalance(u.id)} className="px-2 py-1 rounded bg-green-500/15 text-green-400 text-xs">تعديل</button></td>
               </tr>
             ))}</tbody>
           </table></div>
         )}
+
+        {/* ═══ TICKETS ═══ */}
+        {!loading && tab === "tickets" && (
+          <div className="animate-fade-in">
+            <h2 className="text-lg font-bold text-gray-300 mb-4">🎫 تذاكر الدعم ({tickets.length})</h2>
+            <div className="space-y-3">
+              {tickets.map(t => {
+                const ts2 = TS[t.status] || TS.open;
+                const tp2 = TP[t.priority] || TP.normal;
+                const usr = users.find(u => u.id === t.user_id);
+                return (
+                  <div key={t.id} className="card-dark p-5">
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="text-white font-bold">{t.subject}</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: `${ts2.c}15`, color: ts2.c }}>{ts2.l}</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: `${tp2.c}15`, color: tp2.c }}>{tp2.l}</span>
+                        </div>
+                        <div className="text-xs text-gray-500">من: {usr?.username || t.user_id.slice(0, 8)} • {formatDate(t.created_at)}</div>
+                      </div>
+                    </div>
+                    <div className="text-sm text-gray-400 mb-3 p-3 rounded-lg bg-dark-800">{t.message}</div>
+                    {t.admin_reply && (
+                      <div className="text-sm p-3 rounded-lg mb-3" style={{ background: `${A}08`, border: `1px solid ${A}15` }}>
+                        <span className="text-xs font-bold" style={{ color: A }}>رد الإدارة:</span>
+                        <div className="text-gray-300 mt-1">{t.admin_reply}</div>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={() => { setShowTicketReply(t); setTicketReply(t.admin_reply || ""); }} className="text-xs px-3 py-1.5 rounded-lg text-white" style={{ background: A }}>💬 رد</button>
+                      <select value={t.status} onChange={e => updateTicketStatus(t.id, e.target.value)} className="rounded-lg px-2 py-1 bg-dark-700 border border-white/5 text-xs text-gray-300">
+                        {Object.entries(TS).map(([k, v]) => <option key={k} value={k}>{v.l}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+              {tickets.length === 0 && <div className="card-dark p-16 text-center"><div className="text-4xl mb-3">🎫</div><div className="text-gray-500">لا توجد تذاكر دعم</div><div className="text-gray-600 text-sm mt-1">سيتم عرضها عند إرسالها من المستخدمين</div></div>}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* ═══════════════════════════════════════════ */}
-      {/* ═══ SYNC SELECTION MODAL ═══ */}
-      {/* ═══════════════════════════════════════════ */}
+      {/* ═══════════════════════════════════ */}
+      {/* ═══ ALL MODALS ═══ */}
+      {/* ═══════════════════════════════════ */}
+
+      {/* SYNC MODAL */}
       {showSyncModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80" onClick={() => !syncing && setShowSyncModal(false)} />
           <div className="relative w-full max-w-3xl max-h-[90vh] flex flex-col rounded-2xl overflow-hidden" style={{ background: "#12121a", border: `1px solid ${A}30` }}>
-
-            {/* Header */}
             <div className="p-5 border-b border-white/5 flex items-center justify-between shrink-0">
-              <div>
-                <h2 className="font-display text-lg font-800 text-white">🔄 مزامنة من {syncProvider?.name}</h2>
-                <p className="text-gray-500 text-sm mt-1">اختر الفئات والخدمات التي تريد استيرادها</p>
-              </div>
+              <div><h2 className="font-display text-lg font-800 text-white">🔄 مزامنة من {syncProvider?.name}</h2><p className="text-gray-500 text-sm mt-1">اختر الخدمات للاستيراد</p></div>
               <button onClick={() => !syncing && setShowSyncModal(false)} className="text-gray-500 hover:text-white text-xl">✕</button>
             </div>
-
-            {/* Search + Actions */}
             <div className="p-4 border-b border-white/5 shrink-0">
               <div className="flex gap-3 items-center mb-3">
-                <input type="search" value={syncSearch} onChange={(e) => setSyncSearch(e.target.value)} placeholder="بحث عن خدمة أو فئة..." className="admin-input flex-1" />
+                <input type="search" value={syncSearch} onChange={e => setSyncSearch(e.target.value)} placeholder="بحث..." className="admin-input flex-1" />
                 <span className="text-gray-400 text-sm whitespace-nowrap">{selectedCount}/{totalCount}</span>
               </div>
               <div className="flex gap-2">
@@ -587,125 +736,124 @@ export default function AdminPage() {
                 <button onClick={() => selectAllSync(false)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/15 text-red-400">❌ إلغاء الكل</button>
               </div>
             </div>
-
-            {/* Categories & Services List */}
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {syncLoading ? (
-                <div className="text-center py-12 text-gray-500">جاري جلب الخدمات من المزوّد...</div>
-              ) : filteredSyncCats.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">لا توجد نتائج</div>
-              ) : filteredSyncCats.map((cat, ci) => {
-                const origIdx = syncCategories.findIndex(c => c.name === cat.name);
-                const selectedInCat = cat.services.filter(s => s.selected).length;
-                return (
-                  <div key={cat.name} className="rounded-xl overflow-hidden" style={{ border: "1px solid #2a2a40" }}>
-                    {/* Category Header */}
-                    <div className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-white/[0.03] transition" onClick={() => toggleCatExpand(origIdx)}>
-                      <input type="checkbox" checked={cat.selected} onChange={(e) => { e.stopPropagation(); toggleCatSelection(origIdx); }}
-                        className="w-4 h-4 rounded" style={{ accentColor: A }} onClick={(e) => e.stopPropagation()} />
-                      <span className="text-white font-bold flex-1">{cat.name}</span>
-                      <span className="text-gray-500 text-xs">{selectedInCat}/{cat.services.length} خدمة</span>
-                      <span className="text-gray-500">{cat.expanded ? "▲" : "▼"}</span>
-                    </div>
-
-                    {/* Services */}
-                    {cat.expanded && (
-                      <div className="border-t border-white/5 bg-dark-900/50">
-                        {cat.services.map((svc, si) => {
-                          const origSi = syncCategories[origIdx].services.findIndex(s => s.service === svc.service);
-                          return (
-                            <label key={svc.service} className="flex items-center gap-3 px-6 py-2 hover:bg-white/[0.02] cursor-pointer transition text-sm">
-                              <input type="checkbox" checked={svc.selected} onChange={() => toggleSvcSelection(origIdx, origSi)}
-                                className="w-3.5 h-3.5 rounded" style={{ accentColor: A }} />
-                              <span className="text-gray-400 font-mono text-xs w-12">{svc.service}</span>
-                              <span className="text-gray-300 flex-1 truncate">{svc.name}</span>
-                              <span className="text-xs font-bold" style={{ color: A }}>${svc.rate}/1K</span>
-                              <span className="text-gray-600 text-xs">{svc.min}-{svc.max}</span>
-                              {svc.refill && <span className="text-xs text-green-400">♻️</span>}
-                              {svc.cancel && <span className="text-xs text-red-400">❌</span>}
-                            </label>
-                          );
-                        })}
+              {syncLoading ? <div className="text-center py-12 text-gray-500">جاري جلب الخدمات...</div> :
+                filteredSyncCats.length === 0 ? <div className="text-center py-12 text-gray-500">لا توجد نتائج</div> :
+                  filteredSyncCats.map(cat => {
+                    const oi = syncCategories.findIndex(c => c.name === cat.name);
+                    return (
+                      <div key={cat.name} className="rounded-xl overflow-hidden" style={{ border: "1px solid #2a2a40" }}>
+                        <div className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-white/[0.03]" onClick={() => toggleCatExpand(oi)}>
+                          <input type="checkbox" checked={cat.selected} onChange={e => { e.stopPropagation(); toggleCatSelection(oi); }} className="w-4 h-4 rounded" style={{ accentColor: A }} onClick={e => e.stopPropagation()} />
+                          <span className="text-white font-bold flex-1">{cat.name}</span>
+                          <span className="text-gray-500 text-xs">{cat.services.filter(s => s.selected).length}/{cat.services.length}</span>
+                          <span className="text-gray-500">{cat.expanded ? "▲" : "▼"}</span>
+                        </div>
+                        {cat.expanded && <div className="border-t border-white/5 bg-dark-900/50">
+                          {cat.services.map(svc => {
+                            const si = syncCategories[oi].services.findIndex(s => s.service === svc.service);
+                            return (
+                              <label key={svc.service} className="flex items-center gap-3 px-6 py-2 hover:bg-white/[0.02] cursor-pointer text-sm">
+                                <input type="checkbox" checked={svc.selected} onChange={() => toggleSvcSelection(oi, si)} className="w-3.5 h-3.5 rounded" style={{ accentColor: A }} />
+                                <span className="text-gray-400 font-mono text-xs w-12">{svc.service}</span>
+                                <span className="text-gray-300 flex-1 truncate">{svc.name}</span>
+                                <span className="text-xs font-bold" style={{ color: A }}>${svc.rate}/1K</span>
+                                <span className="text-gray-600 text-xs">{svc.min}-{svc.max}</span>
+                                {svc.refill && <span className="text-xs text-green-400">♻️</span>}
+                                {svc.cancel && <span className="text-xs text-red-400">❌</span>}
+                              </label>
+                            );
+                          })}
+                        </div>}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+                    );
+                  })}
             </div>
-
-            {/* Footer */}
             <div className="p-4 border-t border-white/5 shrink-0 flex items-center justify-between">
               <span className="text-gray-400 text-sm">تم اختيار <strong className="text-white">{selectedCount}</strong> خدمة</span>
               <div className="flex gap-3">
                 <button onClick={() => setShowSyncModal(false)} disabled={syncing} className="px-5 py-2.5 rounded-xl text-sm font-bold text-gray-400 border border-white/10 hover:bg-white/5 disabled:opacity-50">إلغاء</button>
-                <button onClick={importSelected} disabled={syncing || selectedCount === 0}
-                  className="px-6 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50 transition"
-                  style={{ background: selectedCount > 0 ? A : "#555" }}>
-                  {syncing ? "جاري الاستيراد..." : `استيراد ${selectedCount} خدمة`}
-                </button>
+                <button onClick={importSelected} disabled={syncing || selectedCount === 0} className="px-6 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50" style={{ background: selectedCount > 0 ? A : "#555" }}>{syncing ? "جاري الاستيراد..." : `استيراد ${selectedCount} خدمة`}</button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* ═══ PROVIDER MODAL ═══ */}
+      {/* PROVIDER MODAL */}
       {showProvForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/70" onClick={() => setShowProvForm(false)} />
           <div className="relative w-full max-w-md card-dark p-6">
             <h2 className="font-display text-lg font-800 mb-4" style={{ color: A }}>{editingProv ? "تعديل" : "إضافة"} مزوّد</h2>
             <div className="space-y-3">
-              <div><label className="text-gray-400 text-sm">الاسم</label><input value={provForm.name || ""} onChange={(e) => setProvForm({ ...provForm, name: e.target.value })} className="admin-input" /></div>
-              <div><label className="text-gray-400 text-sm">API URL</label><input value={provForm.api_url || ""} onChange={(e) => setProvForm({ ...provForm, api_url: e.target.value })} className="admin-input" dir="ltr" /></div>
-              <div><label className="text-gray-400 text-sm">API Key</label><input value={provForm.api_key || ""} onChange={(e) => setProvForm({ ...provForm, api_key: e.target.value })} className="admin-input" dir="ltr" /></div>
-              <label className="flex items-center gap-2 text-gray-300 text-sm"><input type="checkbox" checked={provForm.is_active} onChange={(e) => setProvForm({ ...provForm, is_active: e.target.checked })} /> مفعّل</label>
+              <div><label className="text-gray-400 text-sm">الاسم</label><input value={provForm.name || ""} onChange={e => setProvForm({ ...provForm, name: e.target.value })} className="admin-input" /></div>
+              <div><label className="text-gray-400 text-sm">API URL</label><input value={provForm.api_url || ""} onChange={e => setProvForm({ ...provForm, api_url: e.target.value })} className="admin-input" dir="ltr" /></div>
+              <div><label className="text-gray-400 text-sm">API Key</label><input value={provForm.api_key || ""} onChange={e => setProvForm({ ...provForm, api_key: e.target.value })} className="admin-input" dir="ltr" /></div>
+              <label className="flex items-center gap-2 text-gray-300 text-sm"><input type="checkbox" checked={provForm.is_active} onChange={e => setProvForm({ ...provForm, is_active: e.target.checked })} /> مفعّل</label>
               <button onClick={saveProv} className="w-full py-3 rounded-xl font-bold text-white" style={{ background: A }}>حفظ</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ═══ CATEGORY MODAL ═══ */}
+      {/* CATEGORY MODAL */}
       {showCatForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/70" onClick={() => setShowCatForm(false)} />
           <div className="relative w-full max-w-md card-dark p-6">
             <h2 className="font-display text-lg font-800 mb-4" style={{ color: A }}>{editingCat ? "تعديل" : "إضافة"} فئة</h2>
             <div className="space-y-3">
-              <input value={catForm.name || ""} onChange={(e) => setCatForm({ ...catForm, name: e.target.value })} placeholder="اسم الفئة" className="admin-input" />
-              <input type="number" value={catForm.sort_order || 0} onChange={(e) => setCatForm({ ...catForm, sort_order: Number(e.target.value) })} className="admin-input" dir="ltr" />
-              <label className="flex items-center gap-2 text-gray-300 text-sm"><input type="checkbox" checked={catForm.is_active} onChange={(e) => setCatForm({ ...catForm, is_active: e.target.checked })} /> مفعّل</label>
+              <input value={catForm.name || ""} onChange={e => setCatForm({ ...catForm, name: e.target.value })} placeholder="اسم الفئة" className="admin-input" />
+              <input type="number" value={catForm.sort_order || 0} onChange={e => setCatForm({ ...catForm, sort_order: Number(e.target.value) })} className="admin-input" dir="ltr" />
+              <label className="flex items-center gap-2 text-gray-300 text-sm"><input type="checkbox" checked={catForm.is_active} onChange={e => setCatForm({ ...catForm, is_active: e.target.checked })} /> مفعّل</label>
               <button onClick={saveCat} className="w-full py-3 rounded-xl font-bold text-white" style={{ background: A }}>حفظ</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ═══ SERVICE MODAL ═══ */}
+      {/* SERVICE MODAL */}
       {showSvcForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/70" onClick={() => setShowSvcForm(false)} />
           <div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto card-dark p-6">
             <h2 className="font-display text-lg font-800 mb-4" style={{ color: A }}>{editingSvc ? "تعديل" : "إضافة"} خدمة</h2>
             <div className="space-y-3">
-              <select value={svcForm.provider_id || ""} onChange={(e) => setSvcForm({ ...svcForm, provider_id: e.target.value })} className="admin-input"><option value="">المزوّد...</option>{providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
-              <select value={svcForm.category_id || ""} onChange={(e) => setSvcForm({ ...svcForm, category_id: e.target.value })} className="admin-input"><option value="">الفئة...</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
-              <input value={svcForm.name || ""} onChange={(e) => setSvcForm({ ...svcForm, name: e.target.value })} placeholder="الاسم" className="admin-input" />
-              <input type="number" value={svcForm.api_service_id || 0} onChange={(e) => setSvcForm({ ...svcForm, api_service_id: Number(e.target.value) })} placeholder="API ID" className="admin-input" dir="ltr" />
+              <select value={svcForm.provider_id || ""} onChange={e => setSvcForm({ ...svcForm, provider_id: e.target.value })} className="admin-input"><option value="">المزوّد...</option>{providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+              <select value={svcForm.category_id || ""} onChange={e => setSvcForm({ ...svcForm, category_id: e.target.value })} className="admin-input"><option value="">الفئة...</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+              <input value={svcForm.name || ""} onChange={e => setSvcForm({ ...svcForm, name: e.target.value })} placeholder="الاسم" className="admin-input" />
+              <input type="number" value={svcForm.api_service_id || 0} onChange={e => setSvcForm({ ...svcForm, api_service_id: Number(e.target.value) })} placeholder="API ID" className="admin-input" dir="ltr" />
               <div className="grid grid-cols-2 gap-2">
-                <input type="number" step="0.001" value={svcForm.price_per_1000 || ""} onChange={(e) => setSvcForm({ ...svcForm, price_per_1000: Number(e.target.value) })} placeholder="$/1K" className="admin-input" dir="ltr" />
-                <input type="number" value={svcForm.min_quantity || ""} onChange={(e) => setSvcForm({ ...svcForm, min_quantity: Number(e.target.value) })} placeholder="أقل" className="admin-input" dir="ltr" />
-                <input type="number" value={svcForm.max_quantity || ""} onChange={(e) => setSvcForm({ ...svcForm, max_quantity: Number(e.target.value) })} placeholder="أعلى" className="admin-input" dir="ltr" />
-                <input value={svcForm.speed || ""} onChange={(e) => setSvcForm({ ...svcForm, speed: e.target.value })} placeholder="السرعة" className="admin-input" />
+                <input type="number" step="0.001" value={svcForm.price_per_1000 || ""} onChange={e => setSvcForm({ ...svcForm, price_per_1000: Number(e.target.value) })} placeholder="$/1K" className="admin-input" dir="ltr" />
+                <input type="number" value={svcForm.min_quantity || ""} onChange={e => setSvcForm({ ...svcForm, min_quantity: Number(e.target.value) })} placeholder="أقل" className="admin-input" dir="ltr" />
+                <input type="number" value={svcForm.max_quantity || ""} onChange={e => setSvcForm({ ...svcForm, max_quantity: Number(e.target.value) })} placeholder="أعلى" className="admin-input" dir="ltr" />
+                <input value={svcForm.speed || ""} onChange={e => setSvcForm({ ...svcForm, speed: e.target.value })} placeholder="السرعة" className="admin-input" />
               </div>
-              <textarea value={svcForm.description || ""} onChange={(e) => setSvcForm({ ...svcForm, description: e.target.value })} placeholder="الوصف" className="admin-input !h-16" />
+              <textarea value={svcForm.description || ""} onChange={e => setSvcForm({ ...svcForm, description: e.target.value })} placeholder="الوصف" className="admin-input !h-16" />
               <div className="flex gap-4">
-                <label className="flex items-center gap-2 text-gray-300 text-sm"><input type="checkbox" checked={svcForm.is_active} onChange={(e) => setSvcForm({ ...svcForm, is_active: e.target.checked })} /> مفعّل</label>
-                <label className="flex items-center gap-2 text-gray-300 text-sm"><input type="checkbox" checked={svcForm.can_refill || false} onChange={(e) => setSvcForm({ ...svcForm, can_refill: e.target.checked })} /> ♻️</label>
-                <label className="flex items-center gap-2 text-gray-300 text-sm"><input type="checkbox" checked={svcForm.can_cancel || false} onChange={(e) => setSvcForm({ ...svcForm, can_cancel: e.target.checked })} /> ❌</label>
+                <label className="flex items-center gap-2 text-gray-300 text-sm"><input type="checkbox" checked={svcForm.is_active} onChange={e => setSvcForm({ ...svcForm, is_active: e.target.checked })} /> مفعّل</label>
+                <label className="flex items-center gap-2 text-gray-300 text-sm"><input type="checkbox" checked={svcForm.can_refill || false} onChange={e => setSvcForm({ ...svcForm, can_refill: e.target.checked })} /> ♻️</label>
+                <label className="flex items-center gap-2 text-gray-300 text-sm"><input type="checkbox" checked={svcForm.can_cancel || false} onChange={e => setSvcForm({ ...svcForm, can_cancel: e.target.checked })} /> ❌</label>
               </div>
               <button onClick={saveSvc} className="w-full py-3 rounded-xl font-bold text-white" style={{ background: A }}>حفظ</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TICKET REPLY MODAL */}
+      {showTicketReply && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/70" onClick={() => setShowTicketReply(null)} />
+          <div className="relative w-full max-w-lg card-dark p-6">
+            <h2 className="font-display text-lg font-800 mb-2" style={{ color: A }}>💬 الرد على التذكرة</h2>
+            <p className="text-gray-400 text-sm mb-4">{showTicketReply.subject}</p>
+            <div className="p-3 rounded-lg bg-dark-800 text-sm text-gray-400 mb-4">{showTicketReply.message}</div>
+            <textarea value={ticketReply} onChange={e => setTicketReply(e.target.value)} placeholder="اكتب ردك هنا..." className="admin-input !h-28 mb-4" />
+            <div className="flex gap-3">
+              <button onClick={() => setShowTicketReply(null)} className="flex-1 py-3 rounded-xl font-bold text-gray-400 border border-white/10 hover:bg-white/5">إلغاء</button>
+              <button onClick={replyTicket} className="flex-1 py-3 rounded-xl font-bold text-white" style={{ background: A }}>إرسال الرد</button>
             </div>
           </div>
         </div>
