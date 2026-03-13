@@ -7,7 +7,23 @@ import toast from "react-hot-toast";
 import Link from "next/link";
 
 const A = STORE.accentColor;
-const ADMIN_KEY = "gm_admin_auth";
+const ADMIN_COOKIE = "gm_admin";
+
+// Cookie helpers
+function setCookie(name: string, value: string, days: number = 7) {
+  const d = new Date();
+  d.setTime(d.getTime() + days * 24 * 60 * 60 * 1000);
+  document.cookie = `${name}=${value};expires=${d.toUTCString()};path=/;SameSite=Lax`;
+}
+
+function getCookie(name: string): string | null {
+  const match = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
+  return match ? match[2] : null;
+}
+
+function deleteCookie(name: string) {
+  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+}
 
 // Type for API service from provider
 interface ApiService {
@@ -57,23 +73,15 @@ export default function AdminPage() {
 
   // ── Read session on mount ──
   useEffect(() => {
-    try {
-      const val = window.localStorage.getItem(ADMIN_KEY);
-      if (val === "1") {
-        setAuthed(true);
-      }
-    } catch (e) {
-      console.error("localStorage read error:", e);
+    const val = getCookie(ADMIN_COOKIE);
+    if (val === "1") {
+      setAuthed(true);
     }
     setMounted(true);
   }, []);
 
   function doLogin() {
-    try {
-      window.localStorage.setItem(ADMIN_KEY, "1");
-    } catch (e) {
-      console.error("localStorage write error:", e);
-    }
+    setCookie(ADMIN_COOKIE, "1", 7);
     setAuthed(true);
     toast.success("تم تسجيل الدخول");
   }
@@ -116,7 +124,7 @@ export default function AdminPage() {
   }
 
   function handleLogout() {
-    try { window.localStorage.removeItem(ADMIN_KEY); } catch {}
+    deleteCookie(ADMIN_COOKIE);
     setAuthed(false);
     setPassword("");
     setTotpCode("");
