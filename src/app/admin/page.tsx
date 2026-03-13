@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import Link from "next/link";
 
 const A = STORE.accentColor;
+const ADMIN_KEY = "gm_admin_auth";
 
 // Type for API service from provider
 interface ApiService {
@@ -15,31 +16,6 @@ interface ApiService {
   selected?: boolean;
 }
 interface ApiCategory { name: string; services: ApiService[]; selected: boolean; expanded: boolean; }
-
-// Helper to read session
-function getAdminSession(): { authed: boolean; pw: string } {
-  if (typeof window === "undefined") return { authed: false, pw: "" };
-  try {
-    const saved = localStorage.getItem("admin_session");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed.authed && parsed.token && parsed.expiry > Date.now()) {
-        return { authed: true, pw: parsed.pw || "" };
-      }
-      localStorage.removeItem("admin_session");
-    }
-  } catch {}
-  return { authed: false, pw: "" };
-}
-
-function saveAdminSession(pw: string, token: string) {
-  const session = { authed: true, token, pw, expiry: Date.now() + 7 * 24 * 60 * 60 * 1000 };
-  localStorage.setItem("admin_session", JSON.stringify(session));
-}
-
-function clearAdminSession() {
-  localStorage.removeItem("admin_session");
-}
 
 export default function AdminPage() {
   const [mounted, setMounted] = useState(false);
@@ -81,13 +57,26 @@ export default function AdminPage() {
 
   // ── Read session on mount ──
   useEffect(() => {
-    const session = getAdminSession();
-    if (session.authed) {
-      setAuthed(true);
-      setPassword(session.pw);
+    try {
+      const val = window.localStorage.getItem(ADMIN_KEY);
+      if (val === "1") {
+        setAuthed(true);
+      }
+    } catch (e) {
+      console.error("localStorage read error:", e);
     }
     setMounted(true);
   }, []);
+
+  function doLogin() {
+    try {
+      window.localStorage.setItem(ADMIN_KEY, "1");
+    } catch (e) {
+      console.error("localStorage write error:", e);
+    }
+    setAuthed(true);
+    toast.success("تم تسجيل الدخول");
+  }
 
   function handleLogin() {
     const adminPass = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "admin123456";
@@ -95,21 +84,7 @@ export default function AdminPage() {
       toast.error("كلمة المرور غير صحيحة");
       return;
     }
-
-    // Check if 2FA is needed (will be handled by API)
-    const totpConfigured = !!process.env.NEXT_PUBLIC_TOTP_ENABLED;
-    if (totpConfigured) {
-      // Use API for 2FA
-      setLoginStep("2fa");
-      toast("أدخل كود المصادقة الثنائية");
-      return;
-    }
-
-    // No 2FA - login directly
-    const token = Date.now().toString(36) + Math.random().toString(36);
-    saveAdminSession(password, token);
-    setAuthed(true);
-    toast.success("تم تسجيل الدخول");
+    doLogin();
   }
 
   async function handleVerify2FA() {
@@ -123,9 +98,7 @@ export default function AdminPage() {
 
       if (!res.success) { toast.error(res.error || "الكود غير صحيح"); return; }
 
-      saveAdminSession(password, res.token);
-      setAuthed(true);
-      toast.success("تم تسجيل الدخول");
+      doLogin();
     } catch { toast.error("خطأ"); }
   }
 
@@ -143,7 +116,7 @@ export default function AdminPage() {
   }
 
   function handleLogout() {
-    clearAdminSession();
+    try { window.localStorage.removeItem(ADMIN_KEY); } catch {}
     setAuthed(false);
     setPassword("");
     setTotpCode("");
