@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { queryBinanceOrder } from "@/lib/binance-pay";
 
+// Run in Singapore to avoid Binance geo-restrictions
+export const preferredRegion = "sin1";
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
