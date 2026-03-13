@@ -3,8 +3,8 @@ import "@/styles/globals.css";
 import { Toaster } from "react-hot-toast";
 
 export const metadata: Metadata = {
-  title: "SMM Services | خدمات التسويق عبر السوشال ميديا",
-  description: "أفضل خدمات التسويق الإلكتروني - متابعين، لايكات، مشاهدات لجميع المنصات",
+  title: "Growence Media | خدمات التسويق عبر السوشال ميديا",
+  description: "جروينس ميديا — أفضل خدمات التسويق الإلكتروني: متابعين، لايكات، مشاهدات لجميع المنصات",
 };
 
 export default function RootLayout({

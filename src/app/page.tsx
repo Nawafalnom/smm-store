@@ -1,89 +1,373 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { BRANDS } from "@/lib/supabase";
+import { supabase, STORE, CURRENCIES, type Package } from "@/lib/supabase";
+import FacebookPixel, { trackEvent } from "@/components/FacebookPixel";
+import toast from "react-hot-toast";
 
-export default function HomePage() {
+export default function StorePage() {
+  const [packages, setPackages] = useState<Package[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedPlatform, setSelectedPlatform] = useState<string>("الكل");
+  const [currency, setCurrency] = useState("SYP");
+  const [orderModal, setOrderModal] = useState<Package | null>(null);
+  const [formData, setFormData] = useState({
+    name: "",
+    phone: "",
+    account: "",
+  });
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--brand-color", STORE.color);
+    document.documentElement.style.setProperty("--brand-rgb", STORE.colorRgb);
+    fetchPackages();
+  }, []);
+
+  async function fetchPackages() {
+    try {
+      const { data, error } = await supabase
+        .from("packages")
+        .select("*")
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+
+      if (error) throw error;
+      setPackages(data || []);
+    } catch (err) {
+      console.error("Error fetching packages:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const platforms = ["الكل", ...Array.from(new Set(packages.map((p) => p.platform)))];
+  const filtered = selectedPlatform === "الكل"
+    ? packages
+    : packages.filter((p) => p.platform === selectedPlatform);
+
+  const currInfo = CURRENCIES[currency];
+  const priceKey = currInfo.key;
+
+  function getPrice(pkg: Package): number {
+    return (pkg as any)[priceKey] || 0;
+  }
+
+  function formatPrice(amount: number): string {
+    return amount.toLocaleString("ar-EG") + " " + currInfo.symbol;
+  }
+
+  async function handleOrder(pkg: Package) {
+    if (!formData.name || !formData.phone || !formData.account) {
+      toast.error("الرجاء تعبئة جميع الحقول");
+      return;
+    }
+
+    const price = getPrice(pkg);
+
+    // Track Lead
+    trackEvent("Lead", {
+      content_name: `${pkg.platform} - ${pkg.service}`,
+      content_category: STORE.name,
+      value: price,
+      currency: currency,
+    });
+
+    // Save order
+    try {
+      const { error } = await supabase.from("orders").insert({
+        package_id: pkg.id,
+        customer_name: formData.name,
+        customer_phone: formData.phone,
+        customer_account: formData.account,
+        currency: currency,
+        total_price: price,
+        status: "pending",
+      });
+      if (error) throw error;
+    } catch (err) {
+      console.error("Error saving order:", err);
+    }
+
+    // Track Purchase
+    trackEvent("Purchase", {
+      content_name: `${pkg.platform} - ${pkg.service}`,
+      content_category: STORE.name,
+      value: price,
+      currency: currency,
+    });
+
+    // WhatsApp message
+    const msg = encodeURIComponent(
+      `🛒 طلب جديد - ${STORE.name}\n` +
+      `━━━━━━━━━━━━━━\n` +
+      `📦 الخدمة: ${pkg.service}\n` +
+      `📱 المنصة: ${pkg.platform}\n` +
+      `🔢 الكمية: ${pkg.quantity}\n` +
+      `💰 السعر: ${formatPrice(price)}\n` +
+      `━━━━━━━━━━━━━━\n` +
+      `👤 الاسم: ${formData.name}\n` +
+      `📞 الهاتف: ${formData.phone}\n` +
+      `🔗 الحساب: ${formData.account}`
+    );
+
+    const waNum = STORE.whatsapp.replace(/[^0-9]/g, "");
+    window.open(`https://wa.me/${waNum}?text=${msg}`, "_blank");
+
+    setOrderModal(null);
+    setFormData({ name: "", phone: "", account: "" });
+    toast.success("تم إرسال الطلب بنجاح!");
+  }
+
   return (
-    <div className="min-h-screen bg-dark-900 bg-grid">
+    <div className="min-h-screen bg-dark-900 bg-grid" style={{ "--brand-color": STORE.color, "--brand-rgb": STORE.colorRgb } as any}>
+      {STORE.pixel && <FacebookPixel pixelId={STORE.pixel} />}
+
+      {/* Header */}
+      <header className="sticky top-0 z-40 backdrop-blur-xl bg-dark-900/80 border-b border-white/5">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div
+              className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-900"
+              style={{ background: `${STORE.color}20`, border: `1px solid ${STORE.color}40`, color: STORE.color }}
+            >
+              G
+            </div>
+            <span className="font-display font-800 text-lg" style={{ color: STORE.color }}>
+              {STORE.name}
+            </span>
+          </div>
+          <select
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value)}
+            className="admin-input !w-auto !py-2 !px-3 text-sm"
+          >
+            {Object.entries(CURRENCIES).map(([code, info]) => (
+              <option key={code} value={code}>{info.symbol} {info.label}</option>
+            ))}
+          </select>
+        </div>
+      </header>
+
       {/* Hero */}
       <div className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-radial opacity-50" style={{ "--brand-rgb": "100, 100, 255" } as any} />
+        <div className="absolute inset-0 bg-radial" />
         <div className="relative max-w-6xl mx-auto px-4 py-20 text-center">
-          <h1 className="font-display text-5xl md:text-7xl font-900 mb-6 bg-gradient-to-l from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent animate-slide-up">
-            خدمات التسويق الرقمي
+          <div
+            className="w-28 h-28 rounded-3xl mx-auto mb-8 flex items-center justify-center animate-pulse-glow"
+            style={{
+              background: `linear-gradient(135deg, ${STORE.color}25, ${STORE.color}08)`,
+              border: `2px solid ${STORE.color}50`,
+            }}
+          >
+            <span className="text-5xl font-display font-900" style={{ color: STORE.color }}>G</span>
+          </div>
+          <h1 className="font-display text-5xl md:text-7xl font-900 neon-text mb-3" style={{ color: STORE.color }}>
+            {STORE.name}
           </h1>
-          <p className="text-xl md:text-2xl text-gray-400 max-w-2xl mx-auto mb-4 animate-slide-up delay-2 opacity-0">
-            متابعين • لايكات • مشاهدات • تعليقات • مشتركين
+          <p className="text-gray-400 text-lg mb-2">{STORE.nameAr}</p>
+          <p className="text-gray-500 max-w-xl mx-auto text-base">
+            {STORE.description}
           </p>
-          <p className="text-lg text-gray-500 animate-slide-up delay-3 opacity-0">
-            لجميع المنصات: فيسبوك، انستجرام، تيك توك، يوتيوب، تويتر والمزيد
-          </p>
+
+          {/* Stats */}
+          <div className="flex flex-wrap justify-center gap-6 mt-10">
+            {[
+              { label: "منصات مدعومة", value: "8+" },
+              { label: "خدمات متنوعة", value: "50+" },
+              { label: "عملاء سعداء", value: "1000+" },
+            ].map((stat, i) => (
+              <div
+                key={i}
+                className="px-6 py-3 rounded-2xl animate-slide-up opacity-0"
+                style={{
+                  background: `${STORE.color}08`,
+                  border: `1px solid ${STORE.color}20`,
+                  animationDelay: `${i * 0.15}s`,
+                }}
+              >
+                <div className="font-display text-2xl font-900" style={{ color: STORE.color }}>{stat.value}</div>
+                <div className="text-gray-500 text-sm">{stat.label}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Brands Grid */}
-      <div className="max-w-6xl mx-auto px-4 pb-20 -mt-4">
-        <h2 className="text-2xl font-display font-bold text-center mb-12 text-gray-300">
-          اختر العلامة التجارية
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {BRANDS.map((brand, i) => (
-            <Link
-              key={brand.slug}
-              href={`/brand/${brand.slug}`}
-              className="group block animate-slide-up opacity-0"
-              style={{ animationDelay: `${i * 0.12}s`, "--brand-color": brand.color, "--brand-rgb": brand.colorRgb } as any}
-            >
-              <div className="card-dark p-8 h-full flex flex-col items-center text-center">
-                {/* Brand Icon */}
-                <div
-                  className="w-20 h-20 rounded-2xl flex items-center justify-center mb-5 animate-float"
-                  style={{
-                    background: `linear-gradient(135deg, ${brand.color}22, ${brand.color}08)`,
-                    border: `2px solid ${brand.color}44`,
-                  }}
-                >
-                  <span className="text-3xl font-display font-900" style={{ color: brand.color }}>
-                    {brand.name.charAt(0)}
+      {/* Platform Filter */}
+      {platforms.length > 1 && (
+        <div className="max-w-6xl mx-auto px-4 mb-8">
+          <div className="flex flex-wrap gap-2 justify-center">
+            {platforms.map((p) => (
+              <button
+                key={p}
+                onClick={() => setSelectedPlatform(p)}
+                className={`platform-badge ${selectedPlatform === p ? "active" : ""}`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Packages */}
+      <div className="max-w-6xl mx-auto px-4 pb-20">
+        {loading ? (
+          <div className="text-center py-20">
+            <div
+              className="w-12 h-12 rounded-full border-4 border-t-transparent animate-spin mx-auto mb-4"
+              style={{ borderColor: `${STORE.color}40`, borderTopColor: "transparent" }}
+            />
+            <p className="text-gray-500">جاري تحميل الباقات...</p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-20">
+            <div className="text-6xl mb-4 opacity-30">📦</div>
+            <p className="text-gray-500 text-lg">لا توجد باقات حالياً</p>
+            <p className="text-gray-600 text-sm mt-2">تواصل معنا على الواتساب للاستفسار</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {filtered.map((pkg, i) => (
+              <div
+                key={pkg.id}
+                className="card-dark p-6 flex flex-col animate-slide-up opacity-0"
+                style={{ animationDelay: `${i * 0.08}s` }}
+              >
+                {/* Platform & Service */}
+                <div className="flex items-center justify-between mb-4">
+                  <span
+                    className="text-xs font-bold px-3 py-1 rounded-full"
+                    style={{
+                      background: `${STORE.color}15`,
+                      color: STORE.color,
+                      border: `1px solid ${STORE.color}30`,
+                    }}
+                  >
+                    {pkg.platform}
                   </span>
+                  <span className="text-gray-500 text-sm">{pkg.service}</span>
                 </div>
 
-                {/* Name */}
-                <h3
-                  className="font-display text-2xl font-800 mb-1"
-                  style={{ color: brand.color }}
-                >
-                  {brand.name}
+                {/* Quantity */}
+                <h3 className="font-display text-2xl font-800 mb-1 text-white">
+                  {pkg.quantity}
                 </h3>
-                <p className="text-gray-500 text-sm mb-4 font-bold">{brand.nameAr}</p>
+                <p className="text-gray-500 text-sm mb-4">{pkg.service}</p>
 
-                {/* Description */}
-                <p className="text-gray-400 text-sm leading-relaxed mb-6 flex-1">
-                  {brand.description}
-                </p>
-
-                {/* CTA */}
-                <div
-                  className="w-full py-3 rounded-xl text-center font-bold transition-all duration-300 group-hover:shadow-lg"
-                  style={{
-                    background: `linear-gradient(135deg, ${brand.color}20, ${brand.color}08)`,
-                    border: `1px solid ${brand.color}40`,
-                    color: brand.color,
-                  }}
-                >
-                  تصفّح الباقات ←
+                {/* Price */}
+                <div className="mt-auto">
+                  <div className="text-3xl font-display font-900 mb-4" style={{ color: STORE.color }}>
+                    {formatPrice(getPrice(pkg))}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setOrderModal(pkg);
+                      trackEvent("Lead", {
+                        content_name: `${pkg.platform} - ${pkg.service}`,
+                        content_category: STORE.name,
+                      });
+                    }}
+                    className="neon-btn w-full py-3 rounded-xl font-bold text-base"
+                  >
+                    🛒 اطلب الآن
+                  </button>
                 </div>
               </div>
-            </Link>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* WhatsApp Float */}
+      <a
+        href={`https://wa.me/${STORE.whatsapp.replace(/[^0-9]/g, "")}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="fixed bottom-6 left-6 z-50 w-14 h-14 rounded-full bg-green-500 flex items-center justify-center shadow-lg shadow-green-500/30 hover:scale-110 transition-transform"
+      >
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="white">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+        </svg>
+      </a>
 
       {/* Footer */}
       <footer className="border-t border-gray-800/50 py-8 text-center text-gray-600 text-sm">
-        <p>جميع الحقوق محفوظة © {new Date().getFullYear()} - خدمات التسويق الرقمي</p>
+        <p>{STORE.name} © {new Date().getFullYear()} — جميع الحقوق محفوظة</p>
       </footer>
+
+      {/* Order Modal */}
+      {orderModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setOrderModal(null)} />
+          <div
+            className="relative w-full max-w-md rounded-2xl p-6 animate-slide-up"
+            style={{
+              background: "linear-gradient(145deg, #12121a, #1a1a28)",
+              border: `1px solid ${STORE.color}30`,
+            }}
+          >
+            <button
+              onClick={() => setOrderModal(null)}
+              className="absolute top-4 left-4 text-gray-500 hover:text-white text-xl"
+            >
+              ✕
+            </button>
+
+            <h2 className="font-display text-xl font-800 mb-1" style={{ color: STORE.color }}>
+              تأكيد الطلب
+            </h2>
+            <p className="text-gray-500 text-sm mb-5">
+              {orderModal.platform} • {orderModal.service} • {orderModal.quantity}
+            </p>
+
+            <div
+              className="rounded-xl p-4 mb-5"
+              style={{ background: `${STORE.color}08`, border: `1px solid ${STORE.color}20` }}
+            >
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">المبلغ</span>
+                <span className="font-display text-2xl font-800" style={{ color: STORE.color }}>
+                  {formatPrice(getPrice(orderModal))}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-3 mb-5">
+              <input
+                type="text"
+                placeholder="الاسم الكامل"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="admin-input"
+              />
+              <input
+                type="tel"
+                placeholder="رقم الهاتف / واتساب"
+                value={formData.phone}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                className="admin-input"
+                dir="ltr"
+              />
+              <input
+                type="text"
+                placeholder="رابط أو اسم الحساب المستهدف"
+                value={formData.account}
+                onChange={(e) => setFormData({ ...formData, account: e.target.value })}
+                className="admin-input"
+              />
+            </div>
+
+            <button
+              onClick={() => handleOrder(orderModal)}
+              className="neon-btn w-full py-3.5 rounded-xl font-bold text-lg"
+            >
+              📱 إرسال الطلب عبر واتساب
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

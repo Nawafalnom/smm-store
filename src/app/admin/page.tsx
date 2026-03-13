@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { supabase, BRANDS, PLATFORMS, SERVICES, CURRENCIES, type Package, type Order } from "@/lib/supabase";
+import { supabase, STORE, PLATFORMS, SERVICES, CURRENCIES, type Package, type Order } from "@/lib/supabase";
 import toast from "react-hot-toast";
 import Link from "next/link";
 
@@ -9,14 +9,12 @@ export default function AdminPage() {
   const [authed, setAuthed] = useState(false);
   const [password, setPassword] = useState("");
   const [activeTab, setActiveTab] = useState<"packages" | "orders">("packages");
-  const [selectedBrand, setSelectedBrand] = useState(BRANDS[0].slug);
   const [packages, setPackages] = useState<Package[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingPkg, setEditingPkg] = useState<Package | null>(null);
   const [form, setForm] = useState<Partial<Package>>({
-    brand_slug: BRANDS[0].slug,
     platform: PLATFORMS[0],
     service: SERVICES[0],
     quantity: "",
@@ -28,11 +26,7 @@ export default function AdminPage() {
     sort_order: 0,
   });
 
-  const brand = BRANDS.find((b) => b.slug === selectedBrand)!;
-
-  // Simple auth
   function handleLogin() {
-    // Use environment variable or fallback
     const adminPass = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "admin123456";
     if (password === adminPass) {
       setAuthed(true);
@@ -48,7 +42,6 @@ export default function AdminPage() {
       const { data, error } = await supabase
         .from("packages")
         .select("*")
-        .eq("brand_slug", selectedBrand)
         .order("sort_order", { ascending: true });
       if (error) throw error;
       setPackages(data || []);
@@ -58,7 +51,7 @@ export default function AdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedBrand]);
+  }, []);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -66,7 +59,6 @@ export default function AdminPage() {
       const { data, error } = await supabase
         .from("orders")
         .select("*")
-        .eq("brand_slug", selectedBrand)
         .order("created_at", { ascending: false })
         .limit(50);
       if (error) throw error;
@@ -76,28 +68,25 @@ export default function AdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedBrand]);
+  }, []);
 
   useEffect(() => {
     if (!authed) return;
     if (activeTab === "packages") fetchPackages();
     else fetchOrders();
-  }, [authed, selectedBrand, activeTab, fetchPackages, fetchOrders]);
+  }, [authed, activeTab, fetchPackages, fetchOrders]);
 
-  // Package CRUD
   async function savePackage() {
-    const payload = { ...form, brand_slug: selectedBrand };
-
     try {
       if (editingPkg?.id) {
         const { error } = await supabase
           .from("packages")
-          .update(payload)
+          .update(form)
           .eq("id", editingPkg.id);
         if (error) throw error;
         toast.success("تم تعديل الباقة");
       } else {
-        const { error } = await supabase.from("packages").insert(payload);
+        const { error } = await supabase.from("packages").insert(form);
         if (error) throw error;
         toast.success("تم إضافة الباقة");
       }
@@ -144,7 +133,6 @@ export default function AdminPage() {
 
   function resetForm() {
     setForm({
-      brand_slug: selectedBrand,
       platform: PLATFORMS[0],
       service: SERVICES[0],
       quantity: "",
@@ -160,10 +148,18 @@ export default function AdminPage() {
   // Login Screen
   if (!authed) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-dark-900 bg-grid p-4">
-        <div className="w-full max-w-sm card-dark p-8 text-center" style={{ "--brand-rgb": "100, 100, 255" } as any}>
-          <h1 className="font-display text-3xl font-800 mb-2 text-white">لوحة التحكم</h1>
-          <p className="text-gray-500 mb-6">أدخل كلمة المرور للمتابعة</p>
+      <div className="min-h-screen flex items-center justify-center bg-dark-900 bg-grid p-4" style={{ "--brand-rgb": STORE.colorRgb } as any}>
+        <div className="w-full max-w-sm card-dark p-8 text-center">
+          <div
+            className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
+            style={{ background: `${STORE.color}15`, border: `1px solid ${STORE.color}30` }}
+          >
+            <span className="text-2xl font-display font-900" style={{ color: STORE.color }}>G</span>
+          </div>
+          <h1 className="font-display text-2xl font-800 mb-1" style={{ color: STORE.color }}>
+            {STORE.name}
+          </h1>
+          <p className="text-gray-500 mb-6 text-sm">لوحة التحكم — أدخل كلمة المرور</p>
           <input
             type="password"
             value={password}
@@ -175,7 +171,7 @@ export default function AdminPage() {
           />
           <button
             onClick={handleLogin}
-            className="w-full py-3 rounded-xl font-bold bg-blue-600 hover:bg-blue-500 text-white transition"
+            className="neon-btn w-full py-3 rounded-xl font-bold"
           >
             دخول
           </button>
@@ -188,13 +184,14 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-dark-900" style={{ "--brand-color": brand.color, "--brand-rgb": brand.colorRgb } as any}>
+    <div className="min-h-screen bg-dark-900" style={{ "--brand-color": STORE.color, "--brand-rgb": STORE.colorRgb } as any}>
       {/* Top Bar */}
       <header className="sticky top-0 z-40 backdrop-blur-xl bg-dark-900/80 border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Link href="/" className="text-gray-500 hover:text-white text-sm">← المتجر</Link>
-            <h1 className="font-display font-800 text-lg text-white">لوحة التحكم</h1>
+            <span className="font-display font-800" style={{ color: STORE.color }}>{STORE.name}</span>
+            <span className="text-gray-600 text-sm">— لوحة التحكم</span>
           </div>
           <button onClick={() => setAuthed(false)} className="text-gray-500 hover:text-red-400 text-sm">
             تسجيل خروج
@@ -203,32 +200,6 @@ export default function AdminPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* Brand Selector */}
-        <div className="flex flex-wrap gap-2 mb-6">
-          {BRANDS.map((b) => (
-            <button
-              key={b.slug}
-              onClick={() => setSelectedBrand(b.slug)}
-              className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${
-                selectedBrand === b.slug
-                  ? "text-white shadow-lg"
-                  : "text-gray-500 hover:text-gray-300"
-              }`}
-              style={
-                selectedBrand === b.slug
-                  ? {
-                      background: `linear-gradient(135deg, ${b.color}30, ${b.color}10)`,
-                      border: `1px solid ${b.color}50`,
-                      boxShadow: `0 0 15px ${b.color}20`,
-                    }
-                  : { background: "#1a1a28", border: "1px solid #2a2a40" }
-              }
-            >
-              {b.name}
-            </button>
-          ))}
-        </div>
-
         {/* Tabs */}
         <div className="flex gap-2 mb-6">
           {(["packages", "orders"] as const).map((tab) => (
@@ -236,9 +207,7 @@ export default function AdminPage() {
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`px-5 py-2.5 rounded-xl font-bold text-sm transition ${
-                activeTab === tab
-                  ? "bg-white/10 text-white"
-                  : "text-gray-500 hover:text-gray-300"
+                activeTab === tab ? "bg-white/10 text-white" : "text-gray-500 hover:text-gray-300"
               }`}
             >
               {tab === "packages" ? "📦 الباقات" : "📋 الطلبات"}
@@ -251,7 +220,7 @@ export default function AdminPage() {
           <>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-gray-300">
-                باقات {brand.name} ({packages.length})
+                الباقات ({packages.length})
               </h2>
               <button
                 onClick={() => {
@@ -294,7 +263,7 @@ export default function AdminPage() {
                         <td className="py-3 px-3">
                           <span
                             className="text-xs px-2 py-1 rounded-lg"
-                            style={{ background: `${brand.color}15`, color: brand.color }}
+                            style={{ background: `${STORE.color}15`, color: STORE.color }}
                           >
                             {pkg.platform}
                           </span>
@@ -309,9 +278,7 @@ export default function AdminPage() {
                           <button
                             onClick={() => toggleActive(pkg)}
                             className={`text-xs px-2 py-1 rounded-lg font-bold ${
-                              pkg.is_active
-                                ? "bg-green-500/15 text-green-400"
-                                : "bg-red-500/15 text-red-400"
+                              pkg.is_active ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"
                             }`}
                           >
                             {pkg.is_active ? "مفعّل" : "معطّل"}
@@ -346,7 +313,7 @@ export default function AdminPage() {
         {activeTab === "orders" && (
           <>
             <h2 className="text-lg font-bold text-gray-300 mb-4">
-              طلبات {brand.name} ({orders.length})
+              الطلبات ({orders.length})
             </h2>
             {loading ? (
               <div className="text-center py-12 text-gray-500">جاري التحميل...</div>
@@ -379,7 +346,7 @@ export default function AdminPage() {
                         <td className="py-3 px-3 text-gray-400 text-xs max-w-[150px] truncate">
                           {order.customer_account}
                         </td>
-                        <td className="py-3 px-3 font-bold" style={{ color: brand.color }}>
+                        <td className="py-3 px-3 font-bold" style={{ color: STORE.color }}>
                           {order.total_price?.toLocaleString()}
                         </td>
                         <td className="py-3 px-3 text-gray-500">{order.currency}</td>
@@ -406,7 +373,7 @@ export default function AdminPage() {
             className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl p-6"
             style={{
               background: "linear-gradient(145deg, #12121a, #1a1a28)",
-              border: `1px solid ${brand.color}30`,
+              border: `1px solid ${STORE.color}30`,
             }}
           >
             <button
@@ -416,12 +383,11 @@ export default function AdminPage() {
               ✕
             </button>
 
-            <h2 className="font-display text-xl font-800 mb-5" style={{ color: brand.color }}>
+            <h2 className="font-display text-xl font-800 mb-5" style={{ color: STORE.color }}>
               {editingPkg ? "تعديل باقة" : "إضافة باقة جديدة"}
             </h2>
 
             <div className="space-y-4">
-              {/* Platform */}
               <div>
                 <label className="block text-gray-400 text-sm mb-1">المنصة</label>
                 <select
@@ -435,7 +401,6 @@ export default function AdminPage() {
                 </select>
               </div>
 
-              {/* Service */}
               <div>
                 <label className="block text-gray-400 text-sm mb-1">الخدمة</label>
                 <select
@@ -449,7 +414,6 @@ export default function AdminPage() {
                 </select>
               </div>
 
-              {/* Quantity */}
               <div>
                 <label className="block text-gray-400 text-sm mb-1">الكمية (مثال: 1000 أو 1K)</label>
                 <input
@@ -461,7 +425,6 @@ export default function AdminPage() {
                 />
               </div>
 
-              {/* Prices */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-gray-400 text-sm mb-1">السعر (ل.س)</label>
@@ -507,7 +470,6 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* Sort Order */}
               <div>
                 <label className="block text-gray-400 text-sm mb-1">ترتيب العرض</label>
                 <input
@@ -519,19 +481,17 @@ export default function AdminPage() {
                 />
               </div>
 
-              {/* Active */}
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={form.is_active}
                   onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
-                  className="w-5 h-5 rounded accent-current"
-                  style={{ accentColor: brand.color }}
+                  className="w-5 h-5 rounded"
+                  style={{ accentColor: STORE.color }}
                 />
                 <span className="text-gray-300">مفعّل (يظهر للعملاء)</span>
               </label>
 
-              {/* Save */}
               <button
                 onClick={savePackage}
                 className="neon-btn w-full py-3.5 rounded-xl font-bold text-lg mt-2"
