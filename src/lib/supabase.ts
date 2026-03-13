@@ -156,11 +156,12 @@ export const PAYMENT_METHODS = {
     icon: "🔶",
     description: "دفع عبر Binance Pay — فوري ومجاني",
     minAmount: 5,
+    qrCode: "https://www2.0zz0.com/2026/01/16/15/195538412.png",
     details: [
-      { label: "Binance ID", value: "YourBinancePayIDHere" },
-      { label: "البريد", value: "pay@growence.media" },
+      { label: "Binance Pay ID", value: "1027009797" },
+      { label: "العملة", value: "USDT" },
     ],
-    instructions: "افتح Binance → Pay → Send → أدخل الـ ID أعلاه → أرسل المبلغ → الصق Order ID",
+    instructions: "افتح Binance → Pay → Send → أدخل الـ Pay ID أعلاه → أرسل المبلغ بـ USDT → الصق Order Number من Binance",
     enabled: true,
   },
 };

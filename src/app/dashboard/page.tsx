@@ -704,6 +704,15 @@ export default function DashboardPage() {
                     {/* Payment Info Box */}
                     <div className="rounded-xl p-5" style={{ background: "#10b98108", border: "1px solid #10b98120" }}>
                       <h3 className="text-sm font-bold text-green-400 mb-3">📋 معلومات الدفع — {method.name}</h3>
+
+                      {/* QR Code if available */}
+                      {(method as any).qrCode && (
+                        <div className="text-center mb-4">
+                          <img src={(method as any).qrCode} alt="QR Code" className="mx-auto rounded-xl" style={{ background: "white", padding: "8px", maxWidth: "200px" }} />
+                          <p className="text-gray-500 text-[10px] mt-2">امسح الكود بتطبيق Binance</p>
+                        </div>
+                      )}
+
                       <div className="space-y-2">
                         {method.details.map((d, i) => (
                           <div key={i} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
