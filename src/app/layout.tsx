@@ -3,7 +3,7 @@ import "@/styles/globals.css";
 import { Toaster } from "react-hot-toast";
 
 export const metadata: Metadata = {
-  title: "Growence Media | خدمات التسويق عبر السوشال ميديا",
+  title: "Growence Media | لوحة خدمات التسويق الإلكتروني",
   description: "جروينس ميديا — أفضل خدمات التسويق الإلكتروني: متابعين، لايكات، مشاهدات لجميع المنصات",
 };
 

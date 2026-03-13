@@ -1,503 +1,340 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { supabase, STORE, PLATFORMS, SERVICES, CURRENCIES, type Package, type Order } from "@/lib/supabase";
+import { supabase, STORE, PLATFORMS, ORDER_STATUSES, type Category, type Service, type Order, type Profile } from "@/lib/supabase";
 import toast from "react-hot-toast";
 import Link from "next/link";
 
 export default function AdminPage() {
   const [authed, setAuthed] = useState(false);
   const [password, setPassword] = useState("");
-  const [activeTab, setActiveTab] = useState<"packages" | "orders">("packages");
-  const [packages, setPackages] = useState<Package[]>([]);
+  const [tab, setTab] = useState<"categories" | "services" | "orders" | "users">("services");
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [editingPkg, setEditingPkg] = useState<Package | null>(null);
-  const [form, setForm] = useState<Partial<Package>>({
-    platform: PLATFORMS[0],
-    service: SERVICES[0],
-    quantity: "",
-    price_syp: 0,
-    price_egp: 0,
-    price_usd: 0,
-    price_sar: 0,
-    is_active: true,
-    sort_order: 0,
+
+  // Forms
+  const [showCatForm, setShowCatForm] = useState(false);
+  const [catForm, setCatForm] = useState<Partial<Category>>({ name: "", sort_order: 0, is_active: true });
+  const [editingCat, setEditingCat] = useState<Category | null>(null);
+
+  const [showSvcForm, setShowSvcForm] = useState(false);
+  const [svcForm, setSvcForm] = useState<Partial<Service>>({
+    category_id: "", name: "", platform: PLATFORMS[0], price_per_1000: 0,
+    min_quantity: 10, max_quantity: 100000, speed: "فوري", guarantee_days: 0,
+    description: "", is_active: true, sort_order: 0,
   });
+  const [editingSvc, setEditingSvc] = useState<Service | null>(null);
+
+  const C = STORE.color; const A = STORE.accentColor;
 
   function handleLogin() {
-    const adminPass = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "admin123456";
-    if (password === adminPass) {
-      setAuthed(true);
-      toast.success("تم تسجيل الدخول");
-    } else {
-      toast.error("كلمة المرور غير صحيحة");
-    }
+    if (password === (process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "admin123456")) {
+      setAuthed(true); toast.success("تم تسجيل الدخول");
+    } else toast.error("كلمة المرور غير صحيحة");
   }
 
-  const fetchPackages = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from("packages")
-        .select("*")
-        .order("sort_order", { ascending: true });
-      if (error) throw error;
-      setPackages(data || []);
-    } catch (err) {
-      console.error(err);
-      toast.error("خطأ في تحميل الباقات");
-    } finally {
-      setLoading(false);
-    }
+    const [c, s, o, u] = await Promise.all([
+      supabase.from("categories").select("*").order("sort_order"),
+      supabase.from("services").select("*, category:categories(name)").order("sort_order"),
+      supabase.from("orders").select("*, service:services(name)").order("created_at", { ascending: false }).limit(100),
+      supabase.from("profiles").select("*").order("created_at", { ascending: false }),
+    ]);
+    if (c.data) setCategories(c.data);
+    if (s.data) setServices(s.data);
+    if (o.data) setOrders(o.data);
+    if (u.data) setUsers(u.data);
+    setLoading(false);
   }, []);
 
-  const fetchOrders = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from("orders")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(50);
-      if (error) throw error;
-      setOrders(data || []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  useEffect(() => { if (authed) fetchAll(); }, [authed, fetchAll]);
 
-  useEffect(() => {
-    if (!authed) return;
-    if (activeTab === "packages") fetchPackages();
-    else fetchOrders();
-  }, [authed, activeTab, fetchPackages, fetchOrders]);
-
-  async function savePackage() {
+  // ── Category CRUD ──
+  async function saveCat() {
     try {
-      if (editingPkg?.id) {
-        const { error } = await supabase
-          .from("packages")
-          .update(form)
-          .eq("id", editingPkg.id);
-        if (error) throw error;
-        toast.success("تم تعديل الباقة");
+      if (editingCat?.id) {
+        await supabase.from("categories").update(catForm).eq("id", editingCat.id);
       } else {
-        const { error } = await supabase.from("packages").insert(form);
-        if (error) throw error;
-        toast.success("تم إضافة الباقة");
+        await supabase.from("categories").insert(catForm);
       }
-      setShowForm(false);
-      setEditingPkg(null);
-      resetForm();
-      fetchPackages();
-    } catch (err) {
-      console.error(err);
-      toast.error("حدث خطأ");
-    }
+      toast.success("تم الحفظ"); setShowCatForm(false); setEditingCat(null);
+      setCatForm({ name: "", sort_order: 0, is_active: true }); fetchAll();
+    } catch { toast.error("خطأ"); }
+  }
+  async function deleteCat(id: string) {
+    if (!confirm("حذف الفئة؟")) return;
+    await supabase.from("categories").delete().eq("id", id); toast.success("تم الحذف"); fetchAll();
   }
 
-  async function deletePackage(id: string) {
-    if (!confirm("هل أنت متأكد من حذف هذه الباقة؟")) return;
+  // ── Service CRUD ──
+  async function saveSvc() {
     try {
-      const { error } = await supabase.from("packages").delete().eq("id", id);
-      if (error) throw error;
-      toast.success("تم حذف الباقة");
-      fetchPackages();
-    } catch (err) {
-      toast.error("خطأ في الحذف");
-    }
+      if (editingSvc?.id) {
+        await supabase.from("services").update(svcForm).eq("id", editingSvc.id);
+      } else {
+        await supabase.from("services").insert(svcForm);
+      }
+      toast.success("تم الحفظ"); setShowSvcForm(false); setEditingSvc(null);
+      setSvcForm({ category_id: "", name: "", platform: PLATFORMS[0], price_per_1000: 0, min_quantity: 10, max_quantity: 100000, speed: "فوري", guarantee_days: 0, description: "", is_active: true, sort_order: 0 });
+      fetchAll();
+    } catch { toast.error("خطأ"); }
+  }
+  async function deleteSvc(id: string) {
+    if (!confirm("حذف الخدمة؟")) return;
+    await supabase.from("services").delete().eq("id", id); toast.success("تم الحذف"); fetchAll();
   }
 
-  async function toggleActive(pkg: Package) {
-    try {
-      const { error } = await supabase
-        .from("packages")
-        .update({ is_active: !pkg.is_active })
-        .eq("id", pkg.id);
-      if (error) throw error;
-      fetchPackages();
-    } catch (err) {
-      toast.error("خطأ");
-    }
+  // ── Update order status ──
+  async function updateOrderStatus(id: string, status: string) {
+    await supabase.from("orders").update({ status }).eq("id", id); fetchAll();
   }
 
-  function editPackage(pkg: Package) {
-    setEditingPkg(pkg);
-    setForm({ ...pkg });
-    setShowForm(true);
+  // ── Update user balance ──
+  async function updateBalance(uid: string, amount: number) {
+    const val = prompt("أدخل الرصيد الجديد:");
+    if (!val) return;
+    await supabase.from("profiles").update({ balance: Number(val) }).eq("id", uid);
+    toast.success("تم تحديث الرصيد"); fetchAll();
   }
 
-  function resetForm() {
-    setForm({
-      platform: PLATFORMS[0],
-      service: SERVICES[0],
-      quantity: "",
-      price_syp: 0,
-      price_egp: 0,
-      price_usd: 0,
-      price_sar: 0,
-      is_active: true,
-      sort_order: 0,
-    });
-  }
-
-  // Login Screen
   if (!authed) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-dark-900 bg-grid p-4" style={{ "--brand-rgb": STORE.colorRgb } as any}>
         <div className="w-full max-w-sm card-dark p-8 text-center">
-          <div
-            className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
-            style={{ background: `${STORE.color}15`, border: `1px solid ${STORE.color}30` }}
-          >
-            <span className="text-2xl font-display font-900" style={{ color: STORE.color }}>G</span>
-          </div>
-          <h1 className="font-display text-2xl font-800 mb-1" style={{ color: STORE.color }}>
-            {STORE.name}
-          </h1>
-          <p className="text-gray-500 mb-6 text-sm">لوحة التحكم — أدخل كلمة المرور</p>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-            placeholder="كلمة المرور"
-            className="admin-input mb-4"
-            dir="ltr"
-          />
-          <button
-            onClick={handleLogin}
-            className="neon-btn w-full py-3 rounded-xl font-bold"
-          >
-            دخول
-          </button>
-          <Link href="/" className="block mt-4 text-sm text-gray-500 hover:text-gray-300">
-            ← العودة للمتجر
-          </Link>
+          <h1 className="font-display text-2xl font-800 mb-1" style={{ color: A }}>Admin Panel</h1>
+          <p className="text-gray-500 mb-6 text-sm">لوحة الإدارة — أدخل كلمة المرور</p>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleLogin()} placeholder="كلمة المرور" className="admin-input mb-4" dir="ltr" />
+          <button onClick={handleLogin} className="w-full py-3 rounded-xl font-bold text-white" style={{ background: A }}>دخول</button>
+          <Link href="/" className="block mt-4 text-sm text-gray-500 hover:text-gray-300">← المتجر</Link>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-dark-900" style={{ "--brand-color": STORE.color, "--brand-rgb": STORE.colorRgb } as any}>
-      {/* Top Bar */}
+    <div className="min-h-screen bg-dark-900" style={{ "--brand-color": C, "--brand-rgb": STORE.colorRgb } as any}>
       <header className="sticky top-0 z-40 backdrop-blur-xl bg-dark-900/80 border-b border-white/5">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Link href="/" className="text-gray-500 hover:text-white text-sm">← المتجر</Link>
-            <span className="font-display font-800" style={{ color: STORE.color }}>{STORE.name}</span>
-            <span className="text-gray-600 text-sm">— لوحة التحكم</span>
+            <Link href="/" className="text-gray-500 hover:text-white text-sm">← الموقع</Link>
+            <span className="font-display font-800" style={{ color: A }}>Admin Panel</span>
           </div>
-          <button onClick={() => setAuthed(false)} className="text-gray-500 hover:text-red-400 text-sm">
-            تسجيل خروج
-          </button>
+          <button onClick={() => setAuthed(false)} className="text-gray-500 hover:text-red-400 text-sm">خروج</button>
         </div>
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-6">
+        {/* Stats */}
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          {[
+            { l: "الفئات", v: categories.length, c: C },
+            { l: "الخدمات", v: services.length, c: A },
+            { l: "الطلبات", v: orders.length, c: "#10b981" },
+            { l: "المستخدمين", v: users.length, c: "#3b82f6" },
+          ].map((s, i) => (
+            <div key={i} className="card-dark p-4 text-center">
+              <div className="font-display text-2xl font-900" style={{ color: s.c }}>{s.v}</div>
+              <div className="text-gray-500 text-xs">{s.l}</div>
+            </div>
+          ))}
+        </div>
+
         {/* Tabs */}
         <div className="flex gap-2 mb-6">
-          {(["packages", "orders"] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-5 py-2.5 rounded-xl font-bold text-sm transition ${
-                activeTab === tab ? "bg-white/10 text-white" : "text-gray-500 hover:text-gray-300"
-              }`}
-            >
-              {tab === "packages" ? "📦 الباقات" : "📋 الطلبات"}
+          {(["categories", "services", "orders", "users"] as const).map((t) => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-4 py-2 rounded-xl text-sm font-bold transition ${tab === t ? "text-white" : "text-gray-500"}`}
+              style={tab === t ? { background: `${A}25`, color: A } : {}}>
+              {t === "categories" ? "📁 الفئات" : t === "services" ? "📦 الخدمات" : t === "orders" ? "📋 الطلبات" : "👥 المستخدمين"}
             </button>
           ))}
         </div>
 
-        {/* PACKAGES TAB */}
-        {activeTab === "packages" && (
-          <>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-gray-300">
-                الباقات ({packages.length})
-              </h2>
-              <button
-                onClick={() => {
-                  setEditingPkg(null);
-                  resetForm();
-                  setShowForm(true);
-                }}
-                className="neon-btn px-5 py-2.5 rounded-xl font-bold text-sm"
-              >
-                + إضافة باقة
-              </button>
-            </div>
+        {loading && <div className="text-center py-12 text-gray-500">جاري التحميل...</div>}
 
-            {loading ? (
-              <div className="text-center py-12 text-gray-500">جاري التحميل...</div>
-            ) : packages.length === 0 ? (
-              <div className="text-center py-16 card-dark">
-                <p className="text-gray-500 text-lg mb-2">لا توجد باقات بعد</p>
-                <p className="text-gray-600 text-sm">اضغط &quot;إضافة باقة&quot; للبدء</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-white/5 text-gray-500">
-                      <th className="py-3 px-3 text-right">المنصة</th>
-                      <th className="py-3 px-3 text-right">الخدمة</th>
-                      <th className="py-3 px-3 text-right">الكمية</th>
-                      <th className="py-3 px-3 text-right">ل.س</th>
-                      <th className="py-3 px-3 text-right">ج.م</th>
-                      <th className="py-3 px-3 text-right">$</th>
-                      <th className="py-3 px-3 text-right">ر.س</th>
-                      <th className="py-3 px-3 text-right">الحالة</th>
-                      <th className="py-3 px-3 text-right">إجراءات</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {packages.map((pkg) => (
-                      <tr key={pkg.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                        <td className="py-3 px-3">
-                          <span
-                            className="text-xs px-2 py-1 rounded-lg"
-                            style={{ background: `${STORE.color}15`, color: STORE.color }}
-                          >
-                            {pkg.platform}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-gray-300">{pkg.service}</td>
-                        <td className="py-3 px-3 text-white font-bold">{pkg.quantity}</td>
-                        <td className="py-3 px-3 text-gray-400">{pkg.price_syp?.toLocaleString()}</td>
-                        <td className="py-3 px-3 text-gray-400">{pkg.price_egp?.toLocaleString()}</td>
-                        <td className="py-3 px-3 text-gray-400">{pkg.price_usd?.toLocaleString()}</td>
-                        <td className="py-3 px-3 text-gray-400">{pkg.price_sar?.toLocaleString()}</td>
-                        <td className="py-3 px-3">
-                          <button
-                            onClick={() => toggleActive(pkg)}
-                            className={`text-xs px-2 py-1 rounded-lg font-bold ${
-                              pkg.is_active ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"
-                            }`}
-                          >
-                            {pkg.is_active ? "مفعّل" : "معطّل"}
-                          </button>
-                        </td>
-                        <td className="py-3 px-3">
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => editPackage(pkg)}
-                              className="text-xs px-3 py-1.5 rounded-lg bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition"
-                            >
-                              تعديل
-                            </button>
-                            <button
-                              onClick={() => deletePackage(pkg.id!)}
-                              className="text-xs px-3 py-1.5 rounded-lg bg-red-500/15 text-red-400 hover:bg-red-500/25 transition"
-                            >
-                              حذف
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+        {/* ── CATEGORIES ── */}
+        {!loading && tab === "categories" && (
+          <>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold text-gray-300">الفئات ({categories.length})</h2>
+              <button onClick={() => { setEditingCat(null); setCatForm({ name: "", sort_order: 0, is_active: true }); setShowCatForm(true); }}
+                className="px-4 py-2 rounded-xl text-sm font-bold text-white" style={{ background: A }}>+ إضافة فئة</button>
+            </div>
+            <div className="space-y-2">
+              {categories.map((c) => (
+                <div key={c.id} className="card-dark p-4 flex items-center justify-between">
+                  <div>
+                    <span className="text-white font-bold">{c.name}</span>
+                    <span className={`mr-2 text-xs px-2 py-0.5 rounded ${c.is_active ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>
+                      {c.is_active ? "مفعّل" : "معطّل"}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => { setEditingCat(c); setCatForm({ ...c }); setShowCatForm(true); }}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-blue-500/15 text-blue-400">تعديل</button>
+                    <button onClick={() => deleteCat(c.id!)}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-red-500/15 text-red-400">حذف</button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </>
         )}
 
-        {/* ORDERS TAB */}
-        {activeTab === "orders" && (
+        {/* ── SERVICES ── */}
+        {!loading && tab === "services" && (
           <>
-            <h2 className="text-lg font-bold text-gray-300 mb-4">
-              الطلبات ({orders.length})
-            </h2>
-            {loading ? (
-              <div className="text-center py-12 text-gray-500">جاري التحميل...</div>
-            ) : orders.length === 0 ? (
-              <div className="text-center py-16 card-dark">
-                <p className="text-gray-500">لا توجد طلبات بعد</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-white/5 text-gray-500">
-                      <th className="py-3 px-3 text-right">التاريخ</th>
-                      <th className="py-3 px-3 text-right">العميل</th>
-                      <th className="py-3 px-3 text-right">الهاتف</th>
-                      <th className="py-3 px-3 text-right">الحساب</th>
-                      <th className="py-3 px-3 text-right">المبلغ</th>
-                      <th className="py-3 px-3 text-right">العملة</th>
-                      <th className="py-3 px-3 text-right">الحالة</th>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold text-gray-300">الخدمات ({services.length})</h2>
+              <button onClick={() => { setEditingSvc(null); setSvcForm({ category_id: categories[0]?.id || "", name: "", platform: PLATFORMS[0], price_per_1000: 0, min_quantity: 10, max_quantity: 100000, speed: "فوري", guarantee_days: 0, description: "", is_active: true, sort_order: 0 }); setShowSvcForm(true); }}
+                className="px-4 py-2 rounded-xl text-sm font-bold text-white" style={{ background: A }}>+ إضافة خدمة</button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-white/5 text-gray-500">
+                  <th className="py-2 px-2 text-right">الاسم</th><th className="py-2 px-2 text-right">الفئة</th>
+                  <th className="py-2 px-2 text-right">$/1000</th><th className="py-2 px-2 text-right">الحالة</th>
+                  <th className="py-2 px-2 text-right">إجراءات</th>
+                </tr></thead>
+                <tbody>
+                  {services.map((s) => (
+                    <tr key={s.id} className="border-b border-white/5">
+                      <td className="py-2 px-2 text-gray-300 text-xs">{s.name}</td>
+                      <td className="py-2 px-2 text-gray-500 text-xs">{(s as any).category?.name || "-"}</td>
+                      <td className="py-2 px-2 font-bold" style={{ color: A }}>${s.price_per_1000}</td>
+                      <td className="py-2 px-2"><span className={`text-xs px-2 py-0.5 rounded ${s.is_active ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>{s.is_active ? "مفعّل" : "معطّل"}</span></td>
+                      <td className="py-2 px-2">
+                        <button onClick={() => { setEditingSvc(s); setSvcForm({ ...s }); setShowSvcForm(true); }} className="text-xs px-2 py-1 rounded bg-blue-500/15 text-blue-400 ml-1">تعديل</button>
+                        <button onClick={() => deleteSvc(s.id!)} className="text-xs px-2 py-1 rounded bg-red-500/15 text-red-400">حذف</button>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {orders.map((order) => (
-                      <tr key={order.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                        <td className="py-3 px-3 text-gray-400 text-xs">
-                          {new Date(order.created_at!).toLocaleDateString("ar-EG")}
-                        </td>
-                        <td className="py-3 px-3 text-gray-300">{order.customer_name}</td>
-                        <td className="py-3 px-3 text-gray-400" dir="ltr">{order.customer_phone}</td>
-                        <td className="py-3 px-3 text-gray-400 text-xs max-w-[150px] truncate">
-                          {order.customer_account}
-                        </td>
-                        <td className="py-3 px-3 font-bold" style={{ color: STORE.color }}>
-                          {order.total_price?.toLocaleString()}
-                        </td>
-                        <td className="py-3 px-3 text-gray-500">{order.currency}</td>
-                        <td className="py-3 px-3">
-                          <span className="text-xs px-2 py-1 rounded-lg bg-yellow-500/15 text-yellow-400">
-                            {order.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </>
+        )}
+
+        {/* ── ORDERS ── */}
+        {!loading && tab === "orders" && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-white/5 text-gray-500">
+                <th className="py-2 px-2 text-right">رقم</th><th className="py-2 px-2 text-right">الخدمة</th>
+                <th className="py-2 px-2 text-right">الكمية</th><th className="py-2 px-2 text-right">السعر</th>
+                <th className="py-2 px-2 text-right">الحالة</th><th className="py-2 px-2 text-right">التاريخ</th>
+              </tr></thead>
+              <tbody>
+                {orders.map((o) => {
+                  const st = ORDER_STATUSES[o.status] || ORDER_STATUSES.pending;
+                  return (
+                    <tr key={o.id} className="border-b border-white/5">
+                      <td className="py-2 px-2 text-gray-500 text-xs font-mono">{o.id?.slice(0, 8)}</td>
+                      <td className="py-2 px-2 text-gray-300 text-xs">{(o as any).service?.name || "-"}</td>
+                      <td className="py-2 px-2 text-white">{o.quantity}</td>
+                      <td className="py-2 px-2 font-bold" style={{ color: A }}>${o.price.toFixed(2)}</td>
+                      <td className="py-2 px-2">
+                        <select value={o.status} onChange={(e) => updateOrderStatus(o.id!, e.target.value)}
+                          className="text-xs rounded px-1 py-0.5 bg-dark-700 border-0" style={{ color: st.color }}>
+                          {Object.entries(ORDER_STATUSES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                        </select>
+                      </td>
+                      <td className="py-2 px-2 text-gray-500 text-xs">{new Date(o.created_at!).toLocaleDateString("ar-EG")}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* ── USERS ── */}
+        {!loading && tab === "users" && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-white/5 text-gray-500">
+                <th className="py-2 px-2 text-right">اسم المستخدم</th><th className="py-2 px-2 text-right">الرصيد</th>
+                <th className="py-2 px-2 text-right">الإنفاق</th><th className="py-2 px-2 text-right">المستوى</th>
+                <th className="py-2 px-2 text-right">إجراءات</th>
+              </tr></thead>
+              <tbody>
+                {users.map((u) => (
+                  <tr key={u.id} className="border-b border-white/5">
+                    <td className="py-2 px-2 text-white font-bold">{u.username}</td>
+                    <td className="py-2 px-2" style={{ color: C }}>${u.balance.toFixed(2)}</td>
+                    <td className="py-2 px-2 text-gray-400">${u.total_spent.toFixed(2)}</td>
+                    <td className="py-2 px-2 text-gray-400">{u.level}</td>
+                    <td className="py-2 px-2">
+                      <button onClick={() => updateBalance(u.id, u.balance)}
+                        className="text-xs px-2 py-1 rounded bg-green-500/15 text-green-400">تعديل الرصيد</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
-      {/* Add/Edit Package Modal */}
-      {showForm && (
+      {/* ── Category Modal ── */}
+      {showCatForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowForm(false)} />
-          <div
-            className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl p-6"
-            style={{
-              background: "linear-gradient(145deg, #12121a, #1a1a28)",
-              border: `1px solid ${STORE.color}30`,
-            }}
-          >
-            <button
-              onClick={() => setShowForm(false)}
-              className="absolute top-4 left-4 text-gray-500 hover:text-white text-xl"
-            >
-              ✕
-            </button>
+          <div className="absolute inset-0 bg-black/70" onClick={() => setShowCatForm(false)} />
+          <div className="relative w-full max-w-md card-dark p-6">
+            <h2 className="font-display text-lg font-800 mb-4" style={{ color: A }}>{editingCat ? "تعديل فئة" : "إضافة فئة"}</h2>
+            <div className="space-y-3">
+              <input value={catForm.name || ""} onChange={(e) => setCatForm({ ...catForm, name: e.target.value })} placeholder="اسم الفئة" className="admin-input" />
+              <input type="number" value={catForm.sort_order || 0} onChange={(e) => setCatForm({ ...catForm, sort_order: Number(e.target.value) })} placeholder="الترتيب" className="admin-input" dir="ltr" />
+              <label className="flex items-center gap-2 text-gray-300"><input type="checkbox" checked={catForm.is_active} onChange={(e) => setCatForm({ ...catForm, is_active: e.target.checked })} /> مفعّل</label>
+              <button onClick={saveCat} className="w-full py-3 rounded-xl font-bold text-white" style={{ background: A }}>حفظ</button>
+            </div>
+          </div>
+        </div>
+      )}
 
-            <h2 className="font-display text-xl font-800 mb-5" style={{ color: STORE.color }}>
-              {editingPkg ? "تعديل باقة" : "إضافة باقة جديدة"}
-            </h2>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-gray-400 text-sm mb-1">المنصة</label>
-                <select
-                  value={form.platform}
-                  onChange={(e) => setForm({ ...form, platform: e.target.value })}
-                  className="admin-input"
-                >
-                  {PLATFORMS.map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-gray-400 text-sm mb-1">الخدمة</label>
-                <select
-                  value={form.service}
-                  onChange={(e) => setForm({ ...form, service: e.target.value })}
-                  className="admin-input"
-                >
-                  {SERVICES.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-gray-400 text-sm mb-1">الكمية (مثال: 1000 أو 1K)</label>
-                <input
-                  type="text"
-                  value={form.quantity}
-                  onChange={(e) => setForm({ ...form, quantity: e.target.value })}
-                  placeholder="مثال: 1000"
-                  className="admin-input"
-                />
-              </div>
-
+      {/* ── Service Modal ── */}
+      {showSvcForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/70" onClick={() => setShowSvcForm(false)} />
+          <div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto card-dark p-6">
+            <h2 className="font-display text-lg font-800 mb-4" style={{ color: A }}>{editingSvc ? "تعديل خدمة" : "إضافة خدمة"}</h2>
+            <div className="space-y-3">
+              <select value={svcForm.category_id || ""} onChange={(e) => setSvcForm({ ...svcForm, category_id: e.target.value })} className="admin-input">
+                <option value="">اختر فئة...</option>
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <input value={svcForm.name || ""} onChange={(e) => setSvcForm({ ...svcForm, name: e.target.value })} placeholder="اسم الخدمة" className="admin-input" />
+              <select value={svcForm.platform || ""} onChange={(e) => setSvcForm({ ...svcForm, platform: e.target.value })} className="admin-input">
+                {PLATFORMS.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-gray-400 text-sm mb-1">السعر (ل.س)</label>
-                  <input
-                    type="number"
-                    value={form.price_syp || ""}
-                    onChange={(e) => setForm({ ...form, price_syp: Number(e.target.value) })}
-                    className="admin-input"
-                    dir="ltr"
-                  />
+                  <label className="text-gray-500 text-xs">سعر/1000</label>
+                  <input type="number" step="0.001" value={svcForm.price_per_1000 || ""} onChange={(e) => setSvcForm({ ...svcForm, price_per_1000: Number(e.target.value) })} className="admin-input" dir="ltr" />
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-sm mb-1">السعر (ج.م)</label>
-                  <input
-                    type="number"
-                    value={form.price_egp || ""}
-                    onChange={(e) => setForm({ ...form, price_egp: Number(e.target.value) })}
-                    className="admin-input"
-                    dir="ltr"
-                  />
+                  <label className="text-gray-500 text-xs">أقل كمية</label>
+                  <input type="number" value={svcForm.min_quantity || ""} onChange={(e) => setSvcForm({ ...svcForm, min_quantity: Number(e.target.value) })} className="admin-input" dir="ltr" />
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-sm mb-1">السعر ($)</label>
-                  <input
-                    type="number"
-                    value={form.price_usd || ""}
-                    onChange={(e) => setForm({ ...form, price_usd: Number(e.target.value) })}
-                    className="admin-input"
-                    dir="ltr"
-                    step="0.01"
-                  />
+                  <label className="text-gray-500 text-xs">أعلى كمية</label>
+                  <input type="number" value={svcForm.max_quantity || ""} onChange={(e) => setSvcForm({ ...svcForm, max_quantity: Number(e.target.value) })} className="admin-input" dir="ltr" />
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-sm mb-1">السعر (ر.س)</label>
-                  <input
-                    type="number"
-                    value={form.price_sar || ""}
-                    onChange={(e) => setForm({ ...form, price_sar: Number(e.target.value) })}
-                    className="admin-input"
-                    dir="ltr"
-                    step="0.01"
-                  />
+                  <label className="text-gray-500 text-xs">أيام الضمان</label>
+                  <input type="number" value={svcForm.guarantee_days || ""} onChange={(e) => setSvcForm({ ...svcForm, guarantee_days: Number(e.target.value) })} className="admin-input" dir="ltr" />
                 </div>
               </div>
-
-              <div>
-                <label className="block text-gray-400 text-sm mb-1">ترتيب العرض</label>
-                <input
-                  type="number"
-                  value={form.sort_order || 0}
-                  onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })}
-                  className="admin-input"
-                  dir="ltr"
-                />
-              </div>
-
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={form.is_active}
-                  onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
-                  className="w-5 h-5 rounded"
-                  style={{ accentColor: STORE.color }}
-                />
-                <span className="text-gray-300">مفعّل (يظهر للعملاء)</span>
-              </label>
-
-              <button
-                onClick={savePackage}
-                className="neon-btn w-full py-3.5 rounded-xl font-bold text-lg mt-2"
-              >
-                {editingPkg ? "💾 حفظ التعديلات" : "➕ إضافة الباقة"}
-              </button>
+              <input value={svcForm.speed || ""} onChange={(e) => setSvcForm({ ...svcForm, speed: e.target.value })} placeholder="السرعة" className="admin-input" />
+              <textarea value={svcForm.description || ""} onChange={(e) => setSvcForm({ ...svcForm, description: e.target.value })} placeholder="الوصف" className="admin-input !h-20" />
+              <input type="number" value={svcForm.sort_order || 0} onChange={(e) => setSvcForm({ ...svcForm, sort_order: Number(e.target.value) })} placeholder="الترتيب" className="admin-input" dir="ltr" />
+              <label className="flex items-center gap-2 text-gray-300"><input type="checkbox" checked={svcForm.is_active} onChange={(e) => setSvcForm({ ...svcForm, is_active: e.target.checked })} /> مفعّل</label>
+              <button onClick={saveSvc} className="w-full py-3 rounded-xl font-bold text-white" style={{ background: A }}>حفظ</button>
             </div>
           </div>
         </div>
