@@ -70,8 +70,8 @@ function generateSecret(): string {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   let secret = "";
   const bytes = crypto.randomBytes(20);
-  for (const byte of bytes) {
-    secret += alphabet[byte % 32];
+  for (let i = 0; i < bytes.length; i++) {
+    secret += alphabet[bytes[i] % 32];
   }
   return secret;
 }
