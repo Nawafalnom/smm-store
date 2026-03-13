@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase, STORE, ORDER_STATUSES, type Profile, type Order, type Category, type Service } from "@/lib/supabase";
+import { supabase, STORE, ORDER_STATUSES, DEPOSIT_STATUSES, PAYMENT_METHODS, type Profile, type Order, type Category, type Service, type Deposit } from "@/lib/supabase";
 import { placeProviderOrder, cancelOrders, refillOrder, getOrderStatus } from "@/lib/smm-api";
 import toast from "react-hot-toast";
 
@@ -58,7 +58,7 @@ export default function DashboardPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeView, setActiveView] = useState<"new_order" | "orders" | "services" | "settings">("new_order");
+  const [activeView, setActiveView] = useState<"new_order" | "orders" | "services" | "add_funds" | "deposits" | "settings">("new_order");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // ── New Order State ──
@@ -72,18 +72,26 @@ export default function DashboardPage() {
   const [orderFilter, setOrderFilter] = useState("all");
   const [orderSearch, setOrderSearch] = useState("");
 
+  // ── Deposit State ──
+  const [deposits, setDeposits] = useState<Deposit[]>([]);
+  const [depositMethod, setDepositMethod] = useState("");
+  const [depositAmount, setDepositAmount] = useState("");
+  const [depositTxId, setDepositTxId] = useState("");
+  const [depositSubmitting, setDepositSubmitting] = useState(false);
+
   useEffect(() => { checkAuth(); }, []);
 
   async function checkAuth() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { router.push("/auth"); return; }
     setUser(session.user);
-    await Promise.all([fetchProfile(session.user.id), fetchOrders(session.user.id), fetchCategories(), fetchServices()]);
+    await Promise.all([fetchProfile(session.user.id), fetchOrders(session.user.id), fetchDeposits(session.user.id), fetchCategories(), fetchServices()]);
     setLoading(false);
   }
 
   async function fetchProfile(uid: string) { const { data } = await supabase.from("profiles").select("*").eq("id", uid).single(); if (data) setProfile(data); }
   async function fetchOrders(uid: string) { const { data } = await supabase.from("orders").select("*, service:services(*, provider:providers(id))").eq("user_id", uid).order("created_at", { ascending: false }).limit(50); if (data) setOrders(data); }
+  async function fetchDeposits(uid: string) { const { data } = await supabase.from("deposits").select("*").eq("user_id", uid).order("created_at", { ascending: false }).limit(50).then(r => r, () => ({ data: null })); if (data) setDeposits(data as any); }
   async function fetchCategories() { const { data } = await supabase.from("categories").select("*").eq("is_active", true).order("sort_order"); if (data) setCategories(data); }
   async function fetchServices() { const { data } = await supabase.from("services").select("*, category:categories(*), provider:providers(id, name)").eq("is_active", true).order("sort_order"); if (data) setServices(data); }
 
@@ -161,11 +169,39 @@ export default function DashboardPage() {
 
   async function handleLogout() { await supabase.auth.signOut(); router.push("/auth"); }
 
+  // ── Deposit Handler ──
+  async function handleDeposit() {
+    if (!depositMethod) { toast.error("اختر طريقة الدفع"); return; }
+    const amt = Number(depositAmount);
+    const method = PAYMENT_METHODS[depositMethod as keyof typeof PAYMENT_METHODS];
+    if (!method) { toast.error("طريقة دفع غير صالحة"); return; }
+    if (!amt || amt < method.minAmount) { toast.error(`الحد الأدنى $${method.minAmount}`); return; }
+    if (!depositTxId.trim()) { toast.error("أدخل رقم العملية أو Transaction Hash"); return; }
+    setDepositSubmitting(true);
+    try {
+      const { error } = await supabase.from("deposits").insert({
+        user_id: user.id,
+        amount: amt,
+        method: depositMethod,
+        transaction_id: depositTxId.trim(),
+        status: "pending",
+      });
+      if (error) throw error;
+      toast.success("تم إرسال طلب الشحن! سيتم مراجعته قريباً ✓");
+      setDepositAmount(""); setDepositTxId(""); setDepositMethod("");
+      setActiveView("deposits");
+      fetchDeposits(user.id);
+    } catch (err: any) { toast.error(err.message || "خطأ"); }
+    finally { setDepositSubmitting(false); }
+  }
+
   if (loading) return <div className="min-h-screen bg-dark-900 flex items-center justify-center"><div className="w-10 h-10 rounded-full border-4 border-t-transparent animate-spin" style={{ borderColor: `${C}40`, borderTopColor: "transparent" }} /></div>;
 
   const menuItems = [
     { key: "new_order", icon: "🛒", label: "طلب جديد" },
     { key: "orders", icon: "📋", label: "الطلبات" },
+    { key: "add_funds", icon: "💰", label: "شحن الرصيد" },
+    { key: "deposits", icon: "📜", label: "سجل الشحن" },
     { key: "services", icon: "❤️", label: "الخدمات" },
     { key: "settings", icon: "⚙️", label: "الإعدادات" },
   ];
@@ -223,7 +259,7 @@ export default function DashboardPage() {
                 <span className="text-[10px] text-gray-500 hidden sm:inline">الرصيد</span>
                 <div className="px-2.5 py-1.5 rounded-lg text-sm font-bold" style={{ background: `${C}15`, color: C }}>${profile?.balance?.toFixed(2) || "0.00"}</div>
               </div>
-              <button className="px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold bg-green-500/15 text-green-400 hover:bg-green-500/25 transition whitespace-nowrap" onClick={() => toast("تواصل مع الدعم لشحن الرصيد")}>+ <span className="hidden sm:inline">إضافة </span>رصيد</button>
+              <button className="px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold bg-green-500/15 text-green-400 hover:bg-green-500/25 transition whitespace-nowrap" onClick={() => setActiveView("add_funds")}>+ <span className="hidden sm:inline">إضافة </span>رصيد</button>
             </div>
           </div>
 
@@ -625,6 +661,151 @@ export default function DashboardPage() {
                   </tr>
                 ))}</tbody>
               </table></div>
+            </div>
+          )}
+
+          {/* ═══ ADD FUNDS ═══ */}
+          {activeView === "add_funds" && (
+            <div className="max-w-3xl mx-auto">
+              <h2 className="text-xl font-bold text-white mb-6">💰 شحن الرصيد</h2>
+
+              {/* Current Balance */}
+              <div className="card-dark p-5 mb-6 flex items-center justify-between">
+                <div>
+                  <div className="text-sm text-gray-400">رصيدك الحالي</div>
+                  <div className="text-3xl font-display font-800 mt-1" style={{ color: C }}>${profile?.balance?.toFixed(2) || "0.00"}</div>
+                </div>
+                <div className="text-5xl opacity-20">💰</div>
+              </div>
+
+              {/* Step 1: Choose Method */}
+              <div className="mb-6">
+                <h3 className="text-sm font-bold text-gray-400 mb-3">1️⃣ اختر طريقة الدفع</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {Object.values(PAYMENT_METHODS).filter(m => m.enabled).map(m => (
+                    <button key={m.id} onClick={() => setDepositMethod(m.id)}
+                      className={`card-dark p-4 text-center transition-all hover:scale-[1.02] ${depositMethod === m.id ? "!border-green-500/50" : ""}`}
+                      style={depositMethod === m.id ? { boxShadow: "0 0 20px rgba(16,185,129,0.15)" } : {}}>
+                      <div className="text-3xl mb-2">{m.icon}</div>
+                      <div className="text-white font-bold text-sm">{m.name}</div>
+                      <div className="text-gray-500 text-[10px] mt-1">{m.description}</div>
+                      {depositMethod === m.id && <div className="mt-2 text-xs text-green-400">✓ محدد</div>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Step 2: Payment Details (show when method selected) */}
+              {depositMethod && (() => {
+                const method = PAYMENT_METHODS[depositMethod as keyof typeof PAYMENT_METHODS];
+                if (!method) return null;
+                return (
+                  <div className="space-y-5 animate-fade-in">
+                    {/* Payment Info Box */}
+                    <div className="rounded-xl p-5" style={{ background: "#10b98108", border: "1px solid #10b98120" }}>
+                      <h3 className="text-sm font-bold text-green-400 mb-3">📋 معلومات الدفع — {method.name}</h3>
+                      <div className="space-y-2">
+                        {method.details.map((d, i) => (
+                          <div key={i} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                            <span className="text-gray-400 text-sm">{d.label}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-white font-mono text-sm" dir="ltr">{d.value}</span>
+                              <button onClick={() => { navigator.clipboard.writeText(d.value); toast.success("تم النسخ!"); }}
+                                className="px-2 py-0.5 rounded bg-white/5 text-[10px] text-gray-400 hover:text-white">نسخ</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-gray-500 text-xs mt-3 leading-relaxed">💡 {method.instructions}</p>
+                    </div>
+
+                    {/* Amount */}
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-400 mb-2">2️⃣ المبلغ (بالدولار)</h3>
+                      <input type="number" step="0.01" min={method.minAmount} value={depositAmount}
+                        onChange={e => setDepositAmount(e.target.value)}
+                        placeholder={`الحد الأدنى $${method.minAmount}`}
+                        className="admin-input text-lg font-bold" dir="ltr" />
+                      {/* Quick amounts */}
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {[5, 10, 25, 50, 100, 250].map(v => (
+                          <button key={v} onClick={() => setDepositAmount(String(v))}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${depositAmount === String(v) ? "text-white" : "text-gray-500 hover:text-gray-300"}`}
+                            style={depositAmount === String(v) ? { background: `${A}25`, color: A } : { background: "rgba(255,255,255,0.03)" }}>
+                            ${v}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Transaction ID */}
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-400 mb-2">3️⃣ رقم العملية / Transaction Hash</h3>
+                      <input type="text" value={depositTxId} onChange={e => setDepositTxId(e.target.value)}
+                        placeholder={depositMethod === "manual" ? "رقم التحويل أو اسمك في الإيصال" : "الصق Transaction Hash هنا"}
+                        className="admin-input" dir="ltr" />
+                    </div>
+
+                    {/* Submit */}
+                    <button onClick={handleDeposit} disabled={depositSubmitting || !depositAmount || !depositTxId.trim()}
+                      className="w-full py-4 rounded-xl font-bold text-lg text-white transition-all hover:brightness-110 disabled:opacity-40"
+                      style={{ background: `linear-gradient(135deg, #10b981, #059669)` }}>
+                      {depositSubmitting ? "جاري الإرسال..." : `إرسال طلب شحن $${depositAmount || "0"}`}
+                    </button>
+
+                    {/* Warning */}
+                    <div className="rounded-xl p-4 text-xs text-gray-500 leading-relaxed" style={{ background: "#f59e0b08", border: "1px solid #f59e0b15" }}>
+                      <span className="text-yellow-400 font-bold">⚠️ تنبيه:</span> تأكد من إرسال المبلغ الصحيح قبل تقديم الطلب. الطلبات المرفوضة بسبب معلومات خاطئة لا يتم استرجاعها.
+                      يتم مراجعة الطلبات خلال 5 دقائق - 24 ساعة حسب طريقة الدفع.
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* ═══ DEPOSITS HISTORY ═══ */}
+          {activeView === "deposits" && (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-white">📜 سجل الشحن ({deposits.length})</h2>
+                <button onClick={() => setActiveView("add_funds")} className="px-4 py-2 rounded-xl text-sm font-bold text-white" style={{ background: A }}>+ شحن جديد</button>
+              </div>
+
+              {deposits.length === 0 ? (
+                <div className="card-dark p-16 text-center">
+                  <div className="text-5xl mb-4 opacity-30">📜</div>
+                  <div className="text-gray-500 mb-2">لا توجد عمليات شحن</div>
+                  <button onClick={() => setActiveView("add_funds")} className="text-sm font-bold mt-2" style={{ color: A }}>اشحن الآن ←</button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {deposits.map(d => {
+                    const ds = DEPOSIT_STATUSES[d.status] || DEPOSIT_STATUSES.pending;
+                    const method = PAYMENT_METHODS[d.method as keyof typeof PAYMENT_METHODS];
+                    return (
+                      <div key={d.id} className="card-dark p-4 flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0" style={{ background: `${ds.color}10` }}>
+                          {method?.icon || "💳"}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-white font-bold">${d.amount.toFixed(2)}</span>
+                            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: `${ds.color}15`, color: ds.color }}>{ds.label}</span>
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {method?.name || d.method} • {d.transaction_id ? `TX: ${d.transaction_id.slice(0, 20)}...` : ""}
+                          </div>
+                          {d.admin_note && <div className="text-xs mt-1 text-yellow-400/70">💬 {d.admin_note}</div>}
+                        </div>
+                        <div className="text-left shrink-0">
+                          <div className="text-[10px] text-gray-600">{d.created_at ? new Date(d.created_at).toLocaleDateString("ar-EG", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 

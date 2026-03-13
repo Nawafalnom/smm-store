@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { supabase, STORE, PLATFORMS, ORDER_STATUSES, type Category, type Service, type Order, type Profile, type Provider } from "@/lib/supabase";
+import { supabase, STORE, PLATFORMS, ORDER_STATUSES, DEPOSIT_STATUSES, PAYMENT_METHODS, type Category, type Service, type Order, type Profile, type Provider, type Deposit } from "@/lib/supabase";
 import { getProviderServices, getProviderBalance } from "@/lib/smm-api";
 import { translateToArabic, translateCategory } from "@/lib/translate";
 import toast from "react-hot-toast";
@@ -38,7 +38,7 @@ export default function AdminPage() {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [password, setPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
-  const [tab, setTab] = useState<"dashboard" | "reports" | "providers" | "categories" | "services" | "orders" | "users" | "tickets" | "notifications">("dashboard");
+  const [tab, setTab] = useState<"dashboard" | "reports" | "providers" | "categories" | "services" | "orders" | "users" | "tickets" | "notifications" | "deposits">("dashboard");
 
   const [providers, setProviders] = useState<Provider[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -48,6 +48,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [adminDeposits, setAdminDeposits] = useState<Deposit[]>([]);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -119,7 +120,7 @@ export default function AdminPage() {
   // ═══════════════════════════════════════
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [p, c, s, o, ao, u, t, n] = await Promise.all([
+    const [p, c, s, o, ao, u, t, n, dep] = await Promise.all([
       supabase.from("providers").select("*").order("sort_order"),
       supabase.from("categories").select("*").order("sort_order"),
       supabase.from("services").select("*, category:categories(name), provider:providers(name)").order("sort_order"),
@@ -128,6 +129,7 @@ export default function AdminPage() {
       supabase.from("profiles").select("*").order("created_at", { ascending: false }),
       supabase.from("support_tickets").select("*").order("created_at", { ascending: false }).limit(100).then(r => r, () => ({ data: null, error: null })),
       supabase.from("admin_notifications").select("*").order("created_at", { ascending: false }).limit(50).then(r => r, () => ({ data: null, error: null })),
+      supabase.from("deposits").select("*, profile:profiles(username)").order("created_at", { ascending: false }).limit(200).then(r => r, () => ({ data: null, error: null })),
     ]);
     if (p.data) setProviders(p.data);
     if (c.data) setCategories(c.data);
@@ -137,6 +139,7 @@ export default function AdminPage() {
     if (u.data) setUsers(u.data);
     if ((t as any).data) setTickets((t as any).data || []);
     if ((n as any).data) setNotifications((n as any).data || []);
+    if ((dep as any).data) setAdminDeposits((dep as any).data || []);
     setLoading(false);
   }, []);
 
@@ -390,6 +393,29 @@ export default function AdminPage() {
   async function markAllRead() { await supabase.from("admin_notifications").update({ is_read: true }).eq("is_read", false); setNotifications(p => p.map(n => ({ ...n, is_read: true }))); toast.success("تم"); }
   async function clearNotifs() { if (!confirm("حذف جميع الإشعارات؟")) return; await supabase.from("admin_notifications").delete().neq("id", "00000000-0000-0000-0000-000000000000"); setNotifications([]); toast.success("تم"); }
 
+  // Deposit management
+  async function approveDeposit(dep: Deposit) {
+    if (!confirm(`قبول طلب شحن $${dep.amount} ؟ سيتم إضافة الرصيد للمستخدم.`)) return;
+    try {
+      // 1. Update deposit status
+      await supabase.from("deposits").update({ status: "approved", updated_at: new Date().toISOString() }).eq("id", dep.id);
+      // 2. Add balance to user
+      const { data: profile } = await supabase.from("profiles").select("balance").eq("id", dep.user_id).single();
+      if (profile) {
+        await supabase.from("profiles").update({ balance: profile.balance + dep.amount }).eq("id", dep.user_id);
+      }
+      toast.success(`تم قبول الشحن ✓ — أضيف $${dep.amount} للمستخدم`);
+      fetchAll();
+    } catch (err) { toast.error("خطأ"); console.error(err); }
+  }
+
+  async function rejectDeposit(dep: Deposit) {
+    const reason = prompt("سبب الرفض (اختياري):");
+    await supabase.from("deposits").update({ status: "rejected", admin_note: reason || "", updated_at: new Date().toISOString() }).eq("id", dep.id);
+    toast.success("تم رفض الطلب");
+    fetchAll();
+  }
+
   // ═══════════════════════════════════════
   //  BAR CHART SVG
   // ═══════════════════════════════════════
@@ -462,6 +488,7 @@ export default function AdminPage() {
     { k: "orders", l: "📋 الطلبات", badge: orders.length },
     { k: "users", l: "👥 المستخدمين", badge: users.length },
     { k: "tickets", l: "🎫 التذاكر", badge: stats.openTickets },
+    { k: "deposits", l: "💳 الشحن", badge: adminDeposits.filter(d => d.status === "pending").length },
   ];
 
   const filteredSyncCats = syncSearch.trim()
@@ -884,6 +911,95 @@ export default function AdminPage() {
                 );
               })}
               {tickets.length === 0 && <div className="card-dark p-16 text-center"><div className="text-4xl mb-3">🎫</div><div className="text-gray-500">لا توجد تذاكر دعم</div><div className="text-gray-600 text-sm mt-1">سيتم عرضها عند إرسالها من المستخدمين</div></div>}
+            </div>
+          </div>
+        )}
+
+        {/* ═══ DEPOSITS ═══ */}
+        {!loading && tab === "deposits" && (
+          <div className="animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-300">💳 طلبات الشحن ({adminDeposits.length})</h2>
+              <div className="flex gap-2 text-xs">
+                <span className="px-2.5 py-1 rounded-lg bg-yellow-500/15 text-yellow-400 font-bold">{adminDeposits.filter(d => d.status === "pending").length} بانتظار</span>
+                <span className="px-2.5 py-1 rounded-lg bg-green-500/15 text-green-400 font-bold">{adminDeposits.filter(d => d.status === "approved").length} مقبول</span>
+                <span className="px-2.5 py-1 rounded-lg bg-red-500/15 text-red-400 font-bold">{adminDeposits.filter(d => d.status === "rejected").length} مرفوض</span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {adminDeposits.map(d => {
+                const ds = DEPOSIT_STATUSES[d.status] || DEPOSIT_STATUSES.pending;
+                const method = PAYMENT_METHODS[d.method as keyof typeof PAYMENT_METHODS];
+                const usr = (d as any).profile;
+                return (
+                  <div key={d.id} className="card-dark p-5" style={d.status === "pending" ? { borderRight: `3px solid #f59e0b` } : {}}>
+                    <div className="flex items-start gap-4">
+                      {/* Icon */}
+                      <div className="w-14 h-14 rounded-xl flex items-center justify-center text-2xl shrink-0" style={{ background: `${ds.color}10` }}>
+                        {method?.icon || "💳"}
+                      </div>
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="text-2xl font-display font-800 text-white">${d.amount.toFixed(2)}</span>
+                          <span className="text-xs px-2.5 py-0.5 rounded-full font-bold" style={{ background: `${ds.color}15`, color: ds.color }}>{ds.label}</span>
+                          <span className="text-xs px-2 py-0.5 rounded-lg bg-white/5 text-gray-400">{method?.name || d.method}</span>
+                        </div>
+
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 mb-2">
+                          <span>👤 <strong className="text-blue-400">{usr?.username || d.user_id.slice(0, 8)}</strong></span>
+                          <span>🕐 {d.created_at ? new Date(d.created_at).toLocaleDateString("ar-EG", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</span>
+                        </div>
+
+                        {/* Transaction ID */}
+                        {d.transaction_id && (
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-[10px] text-gray-600">TX:</span>
+                            <span className="text-xs font-mono text-gray-400 bg-dark-800 px-2 py-0.5 rounded" dir="ltr">{d.transaction_id}</span>
+                            <button onClick={() => { navigator.clipboard.writeText(d.transaction_id); toast.success("تم النسخ"); }}
+                              className="text-[10px] text-gray-600 hover:text-white">📋</button>
+                          </div>
+                        )}
+
+                        {/* Admin note */}
+                        {d.admin_note && (
+                          <div className="text-xs mt-1 px-2 py-1 rounded bg-yellow-500/5 text-yellow-400/70">💬 {d.admin_note}</div>
+                        )}
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex flex-col gap-2 shrink-0">
+                        {d.status === "pending" && (<>
+                          <button onClick={() => approveDeposit(d)}
+                            className="px-4 py-2 rounded-xl text-xs font-bold text-white transition hover:brightness-110"
+                            style={{ background: "#10b981" }}>
+                            ✓ قبول
+                          </button>
+                          <button onClick={() => rejectDeposit(d)}
+                            className="px-4 py-2 rounded-xl text-xs font-bold text-red-400 bg-red-500/10 hover:bg-red-500/20 transition">
+                            ✗ رفض
+                          </button>
+                        </>)}
+                        {d.status === "approved" && (
+                          <span className="text-xs text-green-400 font-bold text-center">✓ تمت الإضافة</span>
+                        )}
+                        {d.status === "rejected" && (
+                          <span className="text-xs text-red-400 font-bold text-center">✗ مرفوض</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {adminDeposits.length === 0 && (
+                <div className="card-dark p-16 text-center">
+                  <div className="text-5xl mb-3 opacity-30">💳</div>
+                  <div className="text-gray-500">لا توجد طلبات شحن</div>
+                </div>
+              )}
             </div>
           </div>
         )}
