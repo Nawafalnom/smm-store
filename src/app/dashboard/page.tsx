@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase, STORE, ORDER_STATUSES, type Profile, type Order, type Category, type Service } from "@/lib/supabase";
-import { placeProviderOrder, cancelOrders, refillOrder } from "@/lib/smm-api";
+import { placeProviderOrder, cancelOrders, refillOrder, getOrderStatus } from "@/lib/smm-api";
 import toast from "react-hot-toast";
 
 const A = STORE.accentColor;
@@ -424,7 +424,7 @@ export default function DashboardPage() {
                     const st = ORDER_STATUSES[o.status] || ORDER_STATUSES.pending;
                     const svc = (o as any).service;
                     const pid = svc?.provider?.id;
-                    const canCancel = svc?.can_cancel && pid && ["pending", "processing"].includes(o.status);
+                    const canCancel = svc?.can_cancel && pid && ["pending", "processing", "in_progress"].includes(o.status);
                     const canRefill = svc?.can_refill && pid && ["completed", "partial"].includes(o.status);
                     return (
                       <tr key={o.id} className="border-b border-white/5 hover:bg-white/[0.02]">
@@ -437,8 +437,102 @@ export default function DashboardPage() {
                         <td className="py-2 px-2 text-gray-500 text-xs">{new Date(o.created_at!).toLocaleDateString("ar-EG")}</td>
                         <td className="py-2 px-2">
                           <div className="flex gap-1">
-                            {canCancel && <button onClick={async () => { if (!confirm("إلغاء؟")) return; const res = await cancelOrders(pid, [o.api_order_id]); if (res?.[0]?.cancel && !res[0].cancel.error) { await supabase.from("orders").update({ status: "cancelled" }).eq("id", o.id); toast.success("تم"); fetchOrders(user.id); } else toast.error("فشل"); }} className="text-xs px-2 py-1 rounded bg-red-500/15 text-red-400">إلغاء</button>}
-                            {canRefill && <button onClick={async () => { const res = await refillOrder(pid, o.api_order_id); res?.refill ? toast.success("تم طلب التعويض") : toast.error("فشل"); }} className="text-xs px-2 py-1 rounded bg-green-500/15 text-green-400">تعويض</button>}
+                            {canCancel && <button onClick={async () => {
+                              if (!confirm("هل تريد إرسال طلب إلغاء؟ سيتم التحقق من المزوّد.")) return;
+                              try {
+                                // 1. Send cancel request to provider
+                                toast("جاري إرسال طلب الإلغاء...");
+                                const cancelRes = await cancelOrders(pid, [o.api_order_id]);
+                                const cancelData = cancelRes?.[0];
+                                if (cancelData?.cancel?.error) { toast.error(`رفض المزوّد: ${cancelData.cancel.error}`); return; }
+
+                                // 2. Wait and check actual status from provider
+                                toast("جاري التحقق من حالة الطلب...");
+                                await new Promise(r => setTimeout(r, 2000));
+                                const statusRes = await getOrderStatus(pid, o.api_order_id);
+
+                                if (!statusRes || statusRes.error) { toast.error("فشل التحقق من الحالة"); return; }
+
+                                const providerStatus = statusRes.status;
+                                const remains = Number(statusRes.remains) || 0;
+                                const startCount = Number(statusRes.start_count) || 0;
+                                const charge = Number(statusRes.charge) || 0;
+
+                                if (providerStatus === "Cancelled" || providerStatus === "Canceled") {
+                                  // Full cancel - refund full price
+                                  const refundAmount = o.price;
+                                  await supabase.from("orders").update({ status: "cancelled", remains: 0, start_count: startCount }).eq("id", o.id);
+                                  if (profile) {
+                                    await supabase.from("profiles").update({
+                                      balance: profile.balance + refundAmount,
+                                      total_spent: Math.max(0, (profile.total_spent || 0) - refundAmount),
+                                    }).eq("id", user.id);
+                                  }
+                                  toast.success(`تم الإلغاء! تم استرداد $${refundAmount.toFixed(4)} إلى رصيدك`);
+                                } else if (providerStatus === "Partial") {
+                                  // Partial - calculate refund for undelivered portion
+                                  const pricePerUnit = o.price / o.quantity;
+                                  const refundAmount = pricePerUnit * remains;
+                                  await supabase.from("orders").update({ status: "partial", remains, start_count: startCount }).eq("id", o.id);
+                                  if (refundAmount > 0 && profile) {
+                                    await supabase.from("profiles").update({
+                                      balance: profile.balance + refundAmount,
+                                      total_spent: Math.max(0, (profile.total_spent || 0) - refundAmount),
+                                    }).eq("id", user.id);
+                                  }
+                                  const delivered = o.quantity - remains;
+                                  toast.success(`الطلب تجزّأ: وصل ${delivered.toLocaleString()} من ${o.quantity.toLocaleString()}. تم استرداد $${refundAmount.toFixed(4)}`);
+                                } else {
+                                  // Still processing or other status - update but no refund yet
+                                  const sMap: Record<string, string> = { "Pending": "pending", "Processing": "processing", "In progress": "in_progress", "Completed": "completed" };
+                                  await supabase.from("orders").update({ status: sMap[providerStatus] || o.status, remains, start_count: startCount }).eq("id", o.id);
+                                  toast(`حالة الطلب: ${providerStatus}. لم يتم الإلغاء بعد، حاول لاحقاً.`);
+                                }
+
+                                await Promise.all([fetchProfile(user.id), fetchOrders(user.id)]);
+                              } catch (err) { console.error(err); toast.error("حدث خطأ"); }
+                            }} className="text-xs px-2 py-1 rounded bg-red-500/15 text-red-400 hover:bg-red-500/25">إلغاء</button>}
+                            {canRefill && <button onClick={async () => {
+                              try {
+                                const res = await refillOrder(pid, o.api_order_id);
+                                if (res?.refill && !res.refill?.error) {
+                                  toast.success(`تم طلب التعويض! رقم: ${res.refill}`);
+                                } else {
+                                  toast.error(res?.refill?.error || "فشل طلب التعويض");
+                                }
+                              } catch { toast.error("خطأ"); }
+                            }} className="text-xs px-2 py-1 rounded bg-green-500/15 text-green-400 hover:bg-green-500/25">تعويض</button>}
+                            {pid && o.api_order_id && <button onClick={async () => {
+                              try {
+                                const statusRes = await getOrderStatus(pid, o.api_order_id);
+                                if (!statusRes || statusRes.error) { toast.error("فشل"); return; }
+                                const sMap: Record<string, string> = { "Pending": "pending", "Processing": "processing", "In progress": "in_progress", "Completed": "completed", "Cancelled": "cancelled", "Partial": "partial", "Canceled": "cancelled" };
+                                const newStatus = sMap[statusRes.status] || o.status;
+                                const remains = Number(statusRes.remains) || 0;
+                                const startCount = Number(statusRes.start_count) || 0;
+
+                                // Handle partial refund
+                                if (newStatus === "partial" && o.status !== "partial") {
+                                  const pricePerUnit = o.price / o.quantity;
+                                  const refundAmount = pricePerUnit * remains;
+                                  if (refundAmount > 0 && profile) {
+                                    await supabase.from("profiles").update({ balance: profile.balance + refundAmount, total_spent: Math.max(0, (profile.total_spent || 0) - refundAmount) }).eq("id", user.id);
+                                    toast.success(`تجزئة: تم استرداد $${refundAmount.toFixed(4)}`);
+                                  }
+                                }
+                                // Handle cancelled refund
+                                if (newStatus === "cancelled" && o.status !== "cancelled") {
+                                  if (profile) {
+                                    await supabase.from("profiles").update({ balance: profile.balance + o.price, total_spent: Math.max(0, (profile.total_spent || 0) - o.price) }).eq("id", user.id);
+                                    toast.success(`ملغي: تم استرداد $${o.price.toFixed(4)}`);
+                                  }
+                                }
+
+                                await supabase.from("orders").update({ status: newStatus, remains, start_count: startCount }).eq("id", o.id);
+                                toast(`الحالة: ${statusRes.status}`);
+                                await Promise.all([fetchProfile(user.id), fetchOrders(user.id)]);
+                              } catch { toast.error("خطأ"); }
+                            }} className="text-xs px-2 py-1 rounded bg-blue-500/15 text-blue-400 hover:bg-blue-500/25">🔄</button>}
                           </div>
                         </td>
                       </tr>);
