@@ -191,7 +191,7 @@ export default function DashboardPage() {
     if (!amt || amt < 5) { toast.error("الحد الأدنى $5"); return; }
     setDepositSubmitting(true);
     try {
-      const res = await fetch("/api/payments/binance-create", {
+      const res = await fetch("/api/payments/binance/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: user.id, amount: amt }),
@@ -862,8 +862,23 @@ export default function DashboardPage() {
                           </div>
                           {d.admin_note && <div className="text-xs mt-1 text-yellow-400/70">💬 {d.admin_note}</div>}
                         </div>
-                        <div className="text-left shrink-0">
+                        <div className="text-left shrink-0 flex flex-col items-end gap-1">
                           <div className="text-[10px] text-gray-600">{d.created_at ? new Date(d.created_at).toLocaleDateString("ar-EG", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</div>
+                          {d.status === "pending" && d.method === "binance_pay" && d.transaction_id && (
+                            <button onClick={async () => {
+                              const res = await fetch("/api/payments/binance/check", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ deposit_id: d.id }),
+                              }).then(r => r.json());
+                              if (res.status === "approved") {
+                                toast.success(res.message || "تم الشحن ✓");
+                                fetchDeposits(user.id); fetchProfile(user.id);
+                              } else {
+                                toast(`الحالة: ${res.binanceStatus || res.status || "قيد الانتظار"}`, { icon: "⏳" });
+                              }
+                            }} className="text-[10px] px-2 py-0.5 rounded-lg bg-yellow-500/15 text-yellow-400 hover:bg-yellow-500/25">🔄 تحقق</button>
+                          )}
                         </div>
                       </div>
                     );
