@@ -1,48 +1,42 @@
-// Client-side helper to call our API proxy
-export async function smmApi(action: string, params: Record<string, any> = {}) {
+// Client helper - all calls go through /api/smm with provider_id
+
+export async function smmApi(providerId: string, action: string, params: Record<string, any> = {}) {
   const res = await fetch("/api/smm", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, ...params }),
+    body: JSON.stringify({ provider_id: providerId, action, ...params }),
   });
   return res.json();
 }
 
-// Get all services from provider
-export async function getProviderServices() {
-  return smmApi("services");
+export async function getProviderServices(providerId: string) {
+  return smmApi(providerId, "services");
 }
 
-// Get provider balance
-export async function getProviderBalance() {
-  return smmApi("balance");
+export async function getProviderBalance(providerId: string) {
+  return smmApi(providerId, "balance");
 }
 
-// Place order on provider
-export async function placeProviderOrder(serviceId: number, link: string, quantity: number) {
-  return smmApi("add", {
+export async function placeProviderOrder(providerId: string, serviceId: number, link: string, quantity: number) {
+  return smmApi(providerId, "add", {
     service: String(serviceId),
     link,
     quantity: String(quantity),
   });
 }
 
-// Get order status from provider
-export async function getOrderStatus(orderId: string) {
-  return smmApi("status", { order: orderId });
+export async function getOrderStatus(providerId: string, orderId: string) {
+  return smmApi(providerId, "status", { order: orderId });
 }
 
-// Get multiple order statuses
-export async function getMultiOrderStatus(orderIds: string[]) {
-  return smmApi("status", { orders: orderIds.join(",") });
+export async function getMultiOrderStatus(providerId: string, orderIds: string[]) {
+  return smmApi(providerId, "status", { orders: orderIds.join(",") });
 }
 
-// Cancel orders
-export async function cancelOrders(orderIds: string[]) {
-  return smmApi("cancel", { orders: orderIds.join(",") });
+export async function cancelOrders(providerId: string, orderIds: string[]) {
+  return smmApi(providerId, "cancel", { orders: orderIds.join(",") });
 }
 
-// Refill order
-export async function refillOrder(orderId: string) {
-  return smmApi("refill", { order: orderId });
+export async function refillOrder(providerId: string, orderId: string) {
+  return smmApi(providerId, "refill", { order: orderId });
 }

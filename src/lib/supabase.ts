@@ -18,6 +18,17 @@ export interface Profile {
   created_at?: string;
 }
 
+export interface Provider {
+  id?: string;
+  name: string;
+  api_url: string;
+  api_key: string;
+  balance: number;
+  is_active: boolean;
+  sort_order: number;
+  created_at?: string;
+}
+
 export interface Category {
   id?: string;
   name: string;
@@ -28,6 +39,7 @@ export interface Category {
 export interface Service {
   id?: string;
   category_id: string;
+  provider_id: string;
   name: string;
   platform: string;
   api_service_id: number;

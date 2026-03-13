@@ -45,7 +45,7 @@ export default function DashboardPage() {
   }
 
   async function fetchOrders(uid: string) {
-    const { data } = await supabase.from("orders").select("*, service:services(*)").eq("user_id", uid).order("created_at", { ascending: false }).limit(50);
+    const { data } = await supabase.from("orders").select("*, service:services(*, provider:providers(id))").eq("user_id", uid).order("created_at", { ascending: false }).limit(50);
     if (data) setOrders(data);
   }
 
@@ -55,7 +55,7 @@ export default function DashboardPage() {
   }
 
   async function fetchServices() {
-    const { data } = await supabase.from("services").select("*, category:categories(*)").eq("is_active", true).order("sort_order");
+    const { data } = await supabase.from("services").select("*, category:categories(*), provider:providers(id, name)").eq("is_active", true).order("sort_order");
     if (data) setServices(data);
   }
 
@@ -82,6 +82,7 @@ export default function DashboardPage() {
     try {
       // 1. Call provider API to place the order
       const apiResult = await placeProviderOrder(
+        selectedService.provider_id,
         selectedService.api_service_id,
         orderLink,
         qty
@@ -421,8 +422,9 @@ export default function DashboardPage() {
                       {orders.map((o) => {
                         const st = ORDER_STATUSES[o.status] || ORDER_STATUSES.pending;
                         const svc = (o as any).service;
-                        const canCancel = svc?.can_cancel && ["pending", "processing"].includes(o.status);
-                        const canRefill = svc?.can_refill && ["completed", "partial"].includes(o.status);
+                        const providerId = svc?.provider?.id;
+                        const canCancel = svc?.can_cancel && providerId && ["pending", "processing"].includes(o.status);
+                        const canRefill = svc?.can_refill && providerId && ["completed", "partial"].includes(o.status);
                         return (
                           <tr key={o.id} className="border-b border-white/5 hover:bg-white/[0.02]">
                             <td className="py-3 px-3 text-gray-500 text-xs font-mono">{o.api_order_id || o.id?.slice(0, 8)}</td>
@@ -441,7 +443,7 @@ export default function DashboardPage() {
                                 {canCancel && (
                                   <button onClick={async () => {
                                     if (!confirm("هل تريد إلغاء الطلب؟")) return;
-                                    const res = await cancelOrders([o.api_order_id]);
+                                    const res = await cancelOrders(providerId, [o.api_order_id]);
                                     if (res?.[0]?.cancel && !res[0].cancel.error) {
                                       await supabase.from("orders").update({ status: "cancelled" }).eq("id", o.id);
                                       toast.success("تم إلغاء الطلب");
@@ -453,7 +455,7 @@ export default function DashboardPage() {
                                 )}
                                 {canRefill && (
                                   <button onClick={async () => {
-                                    const res = await refillOrder(o.api_order_id);
+                                    const res = await refillOrder(providerId, o.api_order_id);
                                     if (res?.refill) {
                                       toast.success("تم طلب التعويض");
                                     } else { toast.error("فشل التعويض"); }

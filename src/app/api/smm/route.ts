@@ -1,37 +1,58 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-const API_URL = "https://smmjob.com/api/v2";
-const API_KEY = process.env.SMM_API_KEY || "";
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
-async function callSmmApi(params: Record<string, string>) {
-  const body = new URLSearchParams({ key: API_KEY, ...params });
+async function getProvider(providerId: string) {
+  const { data } = await supabase
+    .from("providers")
+    .select("*")
+    .eq("id", providerId)
+    .single();
+  return data;
+}
 
-  const res = await fetch(API_URL, {
+async function callProviderApi(apiUrl: string, apiKey: string, params: Record<string, string>) {
+  const body = new URLSearchParams({ key: apiKey, ...params });
+  const res = await fetch(apiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
   });
-
   return res.json();
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { action, ...params } = await req.json();
+    const { provider_id, action, ...params } = await req.json();
 
-    if (!API_KEY) {
-      return NextResponse.json({ error: "API key not configured" }, { status: 500 });
+    if (!provider_id) {
+      return NextResponse.json({ error: "provider_id required" }, { status: 400 });
     }
+
+    const provider = await getProvider(provider_id);
+    if (!provider) {
+      return NextResponse.json({ error: "Provider not found" }, { status: 404 });
+    }
+    if (!provider.is_active) {
+      return NextResponse.json({ error: "Provider is disabled" }, { status: 403 });
+    }
+
+    const apiUrl = provider.api_url;
+    const apiKey = provider.api_key;
 
     let result;
 
     switch (action) {
       case "services":
-        result = await callSmmApi({ action: "services" });
+        result = await callProviderApi(apiUrl, apiKey, { action: "services" });
         break;
 
       case "balance":
-        result = await callSmmApi({ action: "balance" });
+        result = await callProviderApi(apiUrl, apiKey, { action: "balance" });
         break;
 
       case "add": {
@@ -44,36 +65,36 @@ export async function POST(req: NextRequest) {
         if (params.runs) orderParams.runs = params.runs;
         if (params.interval) orderParams.interval = params.interval;
         if (params.comments) orderParams.comments = params.comments;
-        result = await callSmmApi(orderParams);
+        result = await callProviderApi(apiUrl, apiKey, orderParams);
         break;
       }
 
       case "status":
         if (params.orders) {
-          result = await callSmmApi({ action: "status", orders: params.orders });
+          result = await callProviderApi(apiUrl, apiKey, { action: "status", orders: params.orders });
         } else {
-          result = await callSmmApi({ action: "status", order: params.order });
+          result = await callProviderApi(apiUrl, apiKey, { action: "status", order: params.order });
         }
         break;
 
       case "refill":
         if (params.orders) {
-          result = await callSmmApi({ action: "refill", orders: params.orders });
+          result = await callProviderApi(apiUrl, apiKey, { action: "refill", orders: params.orders });
         } else {
-          result = await callSmmApi({ action: "refill", order: params.order });
+          result = await callProviderApi(apiUrl, apiKey, { action: "refill", order: params.order });
         }
         break;
 
       case "refill_status":
         if (params.refills) {
-          result = await callSmmApi({ action: "refill_status", refills: params.refills });
+          result = await callProviderApi(apiUrl, apiKey, { action: "refill_status", refills: params.refills });
         } else {
-          result = await callSmmApi({ action: "refill_status", refill: params.refill });
+          result = await callProviderApi(apiUrl, apiKey, { action: "refill_status", refill: params.refill });
         }
         break;
 
       case "cancel":
-        result = await callSmmApi({ action: "cancel", orders: params.orders });
+        result = await callProviderApi(apiUrl, apiKey, { action: "cancel", orders: params.orders });
         break;
 
       default:
