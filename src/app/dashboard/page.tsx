@@ -69,6 +69,8 @@ export default function DashboardPage() {
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [orderLink, setOrderLink] = useState("");
   const [orderQuantity, setOrderQuantity] = useState("");
+  const [orderFilter, setOrderFilter] = useState("all");
+  const [orderSearch, setOrderSearch] = useState("");
 
   useEffect(() => { checkAuth(); }, []);
 
@@ -126,6 +128,21 @@ export default function DashboardPage() {
   }, [services, searchQuery]);
 
   const orderPrice = selectedService && orderQuantity ? (selectedService.price_per_1000 / 1000) * Number(orderQuantity) : 0;
+
+  // ── Filtered orders ──
+  const displayedOrders = useMemo(() => {
+    let list = orders;
+    if (orderFilter !== "all") list = list.filter(o => o.status === orderFilter);
+    if (orderSearch.trim()) {
+      const q = orderSearch.toLowerCase();
+      list = list.filter(o =>
+        (o.api_order_id || "").toLowerCase().includes(q) ||
+        o.link.toLowerCase().includes(q) ||
+        ((o as any).service?.name || "").toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [orders, orderFilter, orderSearch]);
 
   async function handlePlaceOrder() {
     if (!selectedService || !orderLink || !orderQuantity) { toast.error("الرجاء تعبئة جميع الحقول"); return; }
@@ -412,15 +429,53 @@ export default function DashboardPage() {
           {activeView === "orders" && (
             <div>
               <h2 className="text-lg font-bold text-white mb-4">طلباتي ({orders.length})</h2>
+
+              {/* Status filter tabs */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                {[
+                  { key: "all", label: "الكل" },
+                  { key: "pending", label: "قيد الانتظار" },
+                  { key: "in_progress", label: "قيد التنفيذ" },
+                  { key: "completed", label: "مكتمل" },
+                  { key: "partial", label: "جزئي" },
+                  { key: "processing", label: "معالجة" },
+                  { key: "cancelled", label: "ملغي" },
+                ].map((f) => {
+                  const count = f.key === "all" ? orders.length : orders.filter(o => o.status === f.key).length;
+                  const stColor = f.key === "all" ? A : (ORDER_STATUSES[f.key]?.color || "#888");
+                  return (
+                    <button key={f.key} onClick={() => setOrderFilter(f.key)}
+                      className="px-3 py-1.5 rounded-full text-xs font-bold transition-all"
+                      style={orderFilter === f.key ? { background: `${stColor}25`, color: stColor, border: `1px solid ${stColor}40` } : { color: "#666", border: "1px solid #222" }}>
+                      {f.label} {count > 0 && `(${count})`}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Search */}
+              <div className="mb-4">
+                <input type="search" value={orderSearch} onChange={(e) => setOrderSearch(e.target.value)}
+                  placeholder="بحث برقم الطلب أو الرابط أو الخدمة..." className="admin-input" />
+              </div>
+
               {orders.length === 0 ? <div className="card-dark p-12 text-center text-gray-500">لا توجد طلبات بعد</div> : (
-                <div className="overflow-x-auto"><table className="w-full text-sm">
-                  <thead><tr className="border-b border-white/5 text-gray-500">
-                    <th className="py-3 px-2 text-right">رقم</th><th className="py-3 px-2 text-right">الخدمة</th>
-                    <th className="py-3 px-2 text-right">الرابط</th><th className="py-3 px-2 text-right">الكمية</th>
-                    <th className="py-3 px-2 text-right">السعر</th><th className="py-3 px-2 text-right">الحالة</th>
-                    <th className="py-3 px-2 text-right">التاريخ</th><th className="py-3 px-2 text-right">إجراءات</th>
-                  </tr></thead>
-                  <tbody>{orders.map((o) => {
+                <div className="overflow-x-auto"><table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/5 text-gray-500" style={{ background: `${A}10` }}>
+                      <th className="py-3 px-2 text-right font-bold" style={{ color: A }}>ID</th>
+                      <th className="py-3 px-2 text-right font-bold" style={{ color: A }}>التاريخ</th>
+                      <th className="py-3 px-2 text-right font-bold" style={{ color: A }}>الرابط</th>
+                      <th className="py-3 px-2 text-right font-bold" style={{ color: A }}>التكلفة</th>
+                      <th className="py-3 px-2 text-right font-bold" style={{ color: A }}>عدد البدء</th>
+                      <th className="py-3 px-2 text-right font-bold" style={{ color: A }}>الكمية</th>
+                      <th className="py-3 px-2 text-right font-bold" style={{ color: A }}>الخدمة</th>
+                      <th className="py-3 px-2 text-right font-bold" style={{ color: A }}>الحالة</th>
+                      <th className="py-3 px-2 text-right font-bold" style={{ color: A }}>المتبقي</th>
+                      <th className="py-3 px-2 text-right font-bold" style={{ color: A }}>إجراءات</th>
+                    </tr>
+                  </thead>
+                  <tbody>{displayedOrders.map((o) => {
                     const st = ORDER_STATUSES[o.status] || ORDER_STATUSES.pending;
                     const svc = (o as any).service;
                     const pid = svc?.provider?.id;
@@ -428,70 +483,30 @@ export default function DashboardPage() {
                     const canRefill = svc?.can_refill && pid && ["completed", "partial"].includes(o.status);
                     return (
                       <tr key={o.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                        <td className="py-2 px-2 text-gray-500 text-xs font-mono">{o.api_order_id || o.id?.slice(0, 8)}</td>
-                        <td className="py-2 px-2 text-gray-300 text-xs max-w-[180px] truncate">{svc?.name || "-"}</td>
-                        <td className="py-2 px-2 text-gray-500 text-xs max-w-[100px] truncate" dir="ltr">{o.link}</td>
-                        <td className="py-2 px-2 text-white font-bold">{o.quantity.toLocaleString()}</td>
-                        <td className="py-2 px-2 font-bold" style={{ color: C }}>${o.price.toFixed(2)}</td>
-                        <td className="py-2 px-2"><span className="text-xs px-2 py-0.5 rounded-lg font-bold" style={{ background: `${st.color}20`, color: st.color }}>{st.label}</span></td>
-                        <td className="py-2 px-2 text-gray-500 text-xs">{new Date(o.created_at!).toLocaleDateString("ar-EG")}</td>
-                        <td className="py-2 px-2">
-                          <div className="flex gap-1">
-                            {canCancel && <button onClick={async () => {
-                              if (!confirm("هل تريد إرسال طلب إلغاء؟ سيتم التحقق من المزوّد.")) return;
-                              try {
-                                // 1. Send cancel request to provider
-                                toast("جاري إرسال طلب الإلغاء...");
-                                const cancelRes = await cancelOrders(pid, [o.api_order_id]);
-                                const cancelData = cancelRes?.[0];
-                                if (cancelData?.cancel?.error) { toast.error(`رفض المزوّد: ${cancelData.cancel.error}`); return; }
-
-                                // 2. Wait and check actual status from provider
-                                toast("جاري التحقق من حالة الطلب...");
-                                await new Promise(r => setTimeout(r, 2000));
-                                const statusRes = await getOrderStatus(pid, o.api_order_id);
-
-                                if (!statusRes || statusRes.error) { toast.error("فشل التحقق من الحالة"); return; }
-
-                                const providerStatus = statusRes.status;
-                                const remains = Number(statusRes.remains) || 0;
-                                const startCount = Number(statusRes.start_count) || 0;
-                                const charge = Number(statusRes.charge) || 0;
-
-                                if (providerStatus === "Cancelled" || providerStatus === "Canceled") {
-                                  // Full cancel - refund full price
-                                  const refundAmount = o.price;
-                                  await supabase.from("orders").update({ status: "cancelled", remains: 0, start_count: startCount }).eq("id", o.id);
-                                  if (profile) {
-                                    await supabase.from("profiles").update({
-                                      balance: profile.balance + refundAmount,
-                                      total_spent: Math.max(0, (profile.total_spent || 0) - refundAmount),
-                                    }).eq("id", user.id);
-                                  }
-                                  toast.success(`تم الإلغاء! تم استرداد $${refundAmount.toFixed(4)} إلى رصيدك`);
-                                } else if (providerStatus === "Partial") {
-                                  // Partial - calculate refund for undelivered portion
-                                  const pricePerUnit = o.price / o.quantity;
-                                  const refundAmount = pricePerUnit * remains;
-                                  await supabase.from("orders").update({ status: "partial", remains, start_count: startCount }).eq("id", o.id);
-                                  if (refundAmount > 0 && profile) {
-                                    await supabase.from("profiles").update({
-                                      balance: profile.balance + refundAmount,
-                                      total_spent: Math.max(0, (profile.total_spent || 0) - refundAmount),
-                                    }).eq("id", user.id);
-                                  }
-                                  const delivered = o.quantity - remains;
-                                  toast.success(`الطلب تجزّأ: وصل ${delivered.toLocaleString()} من ${o.quantity.toLocaleString()}. تم استرداد $${refundAmount.toFixed(4)}`);
-                                } else {
-                                  // Still processing or other status - update but no refund yet
-                                  const sMap: Record<string, string> = { "Pending": "pending", "Processing": "processing", "In progress": "in_progress", "Completed": "completed" };
-                                  await supabase.from("orders").update({ status: sMap[providerStatus] || o.status, remains, start_count: startCount }).eq("id", o.id);
-                                  toast(`حالة الطلب: ${providerStatus}. لم يتم الإلغاء بعد، حاول لاحقاً.`);
-                                }
-
-                                await Promise.all([fetchProfile(user.id), fetchOrders(user.id)]);
-                              } catch (err) { console.error(err); toast.error("حدث خطأ"); }
-                            }} className="text-xs px-2 py-1 rounded bg-red-500/15 text-red-400 hover:bg-red-500/25">إلغاء</button>}
+                        <td className="py-2.5 px-2 text-gray-400 font-mono">{o.api_order_id || o.id?.slice(0, 8)}</td>
+                        <td className="py-2.5 px-2 text-gray-500 whitespace-nowrap">
+                          {new Date(o.created_at!).toLocaleDateString("ar-EG")}
+                          <br /><span className="text-gray-600">{new Date(o.created_at!).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" })}</span>
+                        </td>
+                        <td className="py-2.5 px-2 max-w-[150px]">
+                          <a href={o.link} target="_blank" rel="noopener" className="text-blue-400 hover:underline truncate block" dir="ltr">{o.link}</a>
+                        </td>
+                        <td className="py-2.5 px-2 font-bold text-gray-300">${o.price.toFixed(4)}</td>
+                        <td className="py-2.5 px-2 text-gray-400">{o.start_count > 0 ? o.start_count.toLocaleString() : "-"}</td>
+                        <td className="py-2.5 px-2 text-white font-bold">{o.quantity.toLocaleString()}</td>
+                        <td className="py-2.5 px-2 text-gray-300 max-w-[200px]">
+                          <span className="text-gray-500 font-mono text-[10px]">{svc?.api_service_id}</span>
+                          {" — "}
+                          <span className="truncate">{svc?.name || "-"}</span>
+                        </td>
+                        <td className="py-2.5 px-2">
+                          <span className="px-2 py-1 rounded-md font-bold" style={{ background: `${st.color}20`, color: st.color }}>{st.label}</span>
+                        </td>
+                        <td className="py-2.5 px-2 font-bold" style={{ color: o.remains > 0 ? "#f59e0b" : "#555" }}>
+                          {o.remains > 0 ? o.remains.toLocaleString() : "0"}
+                        </td>
+                        <td className="py-2.5 px-2">
+                          <div className="flex flex-wrap gap-1">
                             {canRefill && <button onClick={async () => {
                               try {
                                 const res = await refillOrder(pid, o.api_order_id);
@@ -501,7 +516,40 @@ export default function DashboardPage() {
                                   toast.error(res?.refill?.error || "فشل طلب التعويض");
                                 }
                               } catch { toast.error("خطأ"); }
-                            }} className="text-xs px-2 py-1 rounded bg-green-500/15 text-green-400 hover:bg-green-500/25">تعويض</button>}
+                            }} className="px-2.5 py-1 rounded-md bg-green-500/20 text-green-400 font-bold hover:bg-green-500/30 transition">Refill</button>}
+
+                            {canCancel && <button onClick={async () => {
+                              if (!confirm("هل تريد إرسال طلب إلغاء؟ سيتم التحقق من المزوّد.")) return;
+                              try {
+                                toast("جاري إرسال طلب الإلغاء...");
+                                const cancelRes = await cancelOrders(pid, [o.api_order_id]);
+                                const cancelData = cancelRes?.[0];
+                                if (cancelData?.cancel?.error) { toast.error(`رفض المزوّد: ${cancelData.cancel.error}`); return; }
+                                toast("جاري التحقق من حالة الطلب...");
+                                await new Promise(r => setTimeout(r, 2000));
+                                const statusRes = await getOrderStatus(pid, o.api_order_id);
+                                if (!statusRes || statusRes.error) { toast.error("فشل التحقق"); return; }
+                                const providerStatus = statusRes.status;
+                                const remains = Number(statusRes.remains) || 0;
+                                const startCount = Number(statusRes.start_count) || 0;
+                                if (providerStatus === "Cancelled" || providerStatus === "Canceled") {
+                                  await supabase.from("orders").update({ status: "cancelled", remains: 0, start_count: startCount }).eq("id", o.id);
+                                  if (profile) { await supabase.from("profiles").update({ balance: profile.balance + o.price, total_spent: Math.max(0, (profile.total_spent || 0) - o.price) }).eq("id", user.id); }
+                                  toast.success(`تم الإلغاء! استرداد $${o.price.toFixed(4)}`);
+                                } else if (providerStatus === "Partial") {
+                                  const refund = (o.price / o.quantity) * remains;
+                                  await supabase.from("orders").update({ status: "partial", remains, start_count: startCount }).eq("id", o.id);
+                                  if (refund > 0 && profile) { await supabase.from("profiles").update({ balance: profile.balance + refund, total_spent: Math.max(0, (profile.total_spent || 0) - refund) }).eq("id", user.id); }
+                                  toast.success(`تجزّأ: وصل ${o.quantity - remains} من ${o.quantity}. استرداد $${refund.toFixed(4)}`);
+                                } else {
+                                  const sMap: Record<string, string> = { "Pending": "pending", "Processing": "processing", "In progress": "in_progress", "Completed": "completed" };
+                                  await supabase.from("orders").update({ status: sMap[providerStatus] || o.status, remains, start_count: startCount }).eq("id", o.id);
+                                  toast(`حالة: ${providerStatus}. لم يتم الإلغاء بعد.`);
+                                }
+                                await Promise.all([fetchProfile(user.id), fetchOrders(user.id)]);
+                              } catch (err) { console.error(err); toast.error("خطأ"); }
+                            }} className="px-2.5 py-1 rounded-md bg-red-500/20 text-red-400 font-bold hover:bg-red-500/30 transition">Cancel</button>}
+
                             {pid && o.api_order_id && <button onClick={async () => {
                               try {
                                 const statusRes = await getOrderStatus(pid, o.api_order_id);
@@ -510,29 +558,18 @@ export default function DashboardPage() {
                                 const newStatus = sMap[statusRes.status] || o.status;
                                 const remains = Number(statusRes.remains) || 0;
                                 const startCount = Number(statusRes.start_count) || 0;
-
-                                // Handle partial refund
                                 if (newStatus === "partial" && o.status !== "partial") {
-                                  const pricePerUnit = o.price / o.quantity;
-                                  const refundAmount = pricePerUnit * remains;
-                                  if (refundAmount > 0 && profile) {
-                                    await supabase.from("profiles").update({ balance: profile.balance + refundAmount, total_spent: Math.max(0, (profile.total_spent || 0) - refundAmount) }).eq("id", user.id);
-                                    toast.success(`تجزئة: تم استرداد $${refundAmount.toFixed(4)}`);
-                                  }
+                                  const refund = (o.price / o.quantity) * remains;
+                                  if (refund > 0 && profile) { await supabase.from("profiles").update({ balance: profile.balance + refund, total_spent: Math.max(0, (profile.total_spent || 0) - refund) }).eq("id", user.id); toast.success(`تجزئة: استرداد $${refund.toFixed(4)}`); }
                                 }
-                                // Handle cancelled refund
                                 if (newStatus === "cancelled" && o.status !== "cancelled") {
-                                  if (profile) {
-                                    await supabase.from("profiles").update({ balance: profile.balance + o.price, total_spent: Math.max(0, (profile.total_spent || 0) - o.price) }).eq("id", user.id);
-                                    toast.success(`ملغي: تم استرداد $${o.price.toFixed(4)}`);
-                                  }
+                                  if (profile) { await supabase.from("profiles").update({ balance: profile.balance + o.price, total_spent: Math.max(0, (profile.total_spent || 0) - o.price) }).eq("id", user.id); toast.success(`ملغي: استرداد $${o.price.toFixed(4)}`); }
                                 }
-
                                 await supabase.from("orders").update({ status: newStatus, remains, start_count: startCount }).eq("id", o.id);
-                                toast(`الحالة: ${statusRes.status}`);
+                                toast(`الحالة: ${statusRes.status} | بدء: ${startCount} | متبقي: ${remains}`);
                                 await Promise.all([fetchProfile(user.id), fetchOrders(user.id)]);
                               } catch { toast.error("خطأ"); }
-                            }} className="text-xs px-2 py-1 rounded bg-blue-500/15 text-blue-400 hover:bg-blue-500/25">🔄</button>}
+                            }} className="px-2.5 py-1 rounded-md bg-blue-500/20 text-blue-400 font-bold hover:bg-blue-500/30 transition" title="تحديث الحالة">🔄</button>}
                           </div>
                         </td>
                       </tr>);
