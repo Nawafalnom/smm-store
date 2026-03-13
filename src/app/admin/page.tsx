@@ -18,7 +18,11 @@ interface ApiCategory { name: string; services: ApiService[]; selected: boolean;
 
 export default function AdminPage() {
   const [authed, setAuthed] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
   const [password, setPassword] = useState("");
+  const [loginStep, setLoginStep] = useState<"password" | "2fa" | "setup2fa">("password");
+  const [totpCode, setTotpCode] = useState("");
+  const [setup2FA, setSetup2FA] = useState<{ secret: string; qrUrl: string; configured: boolean; message: string } | null>(null);
   const [tab, setTab] = useState<"providers" | "categories" | "services" | "orders" | "users">("providers");
   const [providers, setProviders] = useState<Provider[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -50,8 +54,89 @@ export default function AdminPage() {
   const [editingSvc, setEditingSvc] = useState<Service | null>(null);
   const [svcForm, setSvcForm] = useState<Partial<Service>>({});
 
-  function handleLogin() {
-    if (password === (process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "admin123456")) { setAuthed(true); toast.success("تم"); } else toast.error("خطأ");
+  // ── Check saved session on mount ──
+  useEffect(() => {
+    const saved = localStorage.getItem("admin_session");
+    if (saved) {
+      try {
+        const { password: savedPw, token } = JSON.parse(saved);
+        if (savedPw && token) {
+          // Verify session is still valid
+          fetch("/api/admin", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "verifyToken", password: savedPw }),
+          }).then(r => r.json()).then(res => {
+            if (res.success) { setPassword(savedPw); setAuthed(true); }
+            else { localStorage.removeItem("admin_session"); }
+            setAuthLoading(false);
+          }).catch(() => { setAuthLoading(false); });
+          return;
+        }
+      } catch {}
+    }
+    setAuthLoading(false);
+  }, []);
+
+  async function handleLogin() {
+    try {
+      const res = await fetch("/api/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "login", password }),
+      }).then(r => r.json());
+
+      if (!res.success) { toast.error(res.error || "خطأ"); return; }
+
+      if (res.requires2FA) {
+        setLoginStep("2fa");
+        toast("أدخل كود المصادقة الثنائية");
+        return;
+      }
+
+      // No 2FA - login directly
+      localStorage.setItem("admin_session", JSON.stringify({ password, token: res.token }));
+      setAuthed(true);
+      toast.success("تم تسجيل الدخول");
+    } catch { toast.error("خطأ في الاتصال"); }
+  }
+
+  async function handleVerify2FA() {
+    if (totpCode.length !== 6) { toast.error("أدخل 6 أرقام"); return; }
+    try {
+      const res = await fetch("/api/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verify2fa", password, code: totpCode }),
+      }).then(r => r.json());
+
+      if (!res.success) { toast.error(res.error || "الكود غير صحيح"); return; }
+
+      localStorage.setItem("admin_session", JSON.stringify({ password, token: res.token }));
+      setAuthed(true);
+      toast.success("تم تسجيل الدخول");
+    } catch { toast.error("خطأ"); }
+  }
+
+  async function handleSetup2FA() {
+    try {
+      const res = await fetch("/api/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "setup2fa", password }),
+      }).then(r => r.json());
+
+      if (res.success) { setSetup2FA(res); setLoginStep("setup2fa"); }
+      else toast.error(res.error);
+    } catch { toast.error("خطأ"); }
+  }
+
+  function handleLogout() {
+    localStorage.removeItem("admin_session");
+    setAuthed(false);
+    setPassword("");
+    setTotpCode("");
+    setLoginStep("password");
   }
 
   const fetchAll = useCallback(async () => {
@@ -232,14 +317,93 @@ export default function AdminPage() {
   async function updateOrderStatus(id: string, status: string) { await supabase.from("orders").update({ status }).eq("id", id); fetchAll(); }
   async function updateBalance(uid: string) { const v = prompt("الرصيد الجديد:"); if (!v) return; await supabase.from("profiles").update({ balance: Number(v) }).eq("id", uid); toast.success("تم"); fetchAll(); }
 
+  // ── LOADING ──
+  if (authLoading) return (
+    <div className="min-h-screen flex items-center justify-center bg-dark-900">
+      <div className="w-10 h-10 rounded-full border-4 border-t-transparent animate-spin" style={{ borderColor: `${A}40`, borderTopColor: "transparent" }} />
+    </div>
+  );
+
   // ── LOGIN ──
   if (!authed) return (
     <div className="min-h-screen flex items-center justify-center bg-dark-900 bg-grid p-4" style={{ "--brand-rgb": STORE.colorRgb } as any}>
       <div className="w-full max-w-sm card-dark p-8 text-center">
         <h1 className="font-display text-2xl font-800 mb-1" style={{ color: A }}>Admin Panel</h1>
         <p className="text-gray-500 mb-6 text-sm">لوحة الإدارة</p>
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleLogin()} placeholder="كلمة المرور" className="admin-input mb-4" dir="ltr" />
-        <button onClick={handleLogin} className="w-full py-3 rounded-xl font-bold text-white" style={{ background: A }}>دخول</button>
+
+        {/* Step 1: Password */}
+        {loginStep === "password" && (
+          <div className="space-y-4">
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+              placeholder="كلمة المرور" className="admin-input" dir="ltr" />
+            <button onClick={handleLogin} className="w-full py-3 rounded-xl font-bold text-white" style={{ background: A }}>دخول</button>
+            <button onClick={handleSetup2FA} className="text-xs text-gray-600 hover:text-gray-400 transition">⚙️ إعداد المصادقة الثنائية</button>
+          </div>
+        )}
+
+        {/* Step 2: 2FA Code */}
+        {loginStep === "2fa" && (
+          <div className="space-y-4">
+            <div className="text-4xl mb-2">🔐</div>
+            <p className="text-gray-400 text-sm mb-2">أدخل كود المصادقة الثنائية من تطبيق Google Authenticator</p>
+            <input type="text" value={totpCode} maxLength={6}
+              onChange={(e) => setTotpCode(e.target.value.replace(/[^0-9]/g, ""))}
+              onKeyDown={(e) => e.key === "Enter" && handleVerify2FA()}
+              placeholder="000000" className="admin-input text-center !text-2xl !tracking-[0.5em] !font-mono" dir="ltr" />
+            <button onClick={handleVerify2FA} disabled={totpCode.length !== 6}
+              className="w-full py-3 rounded-xl font-bold text-white disabled:opacity-40" style={{ background: A }}>
+              تحقق
+            </button>
+            <button onClick={() => { setLoginStep("password"); setTotpCode(""); }} className="text-xs text-gray-500 hover:text-gray-300">← رجوع</button>
+          </div>
+        )}
+
+        {/* Step: 2FA Setup */}
+        {loginStep === "setup2fa" && setup2FA && (
+          <div className="space-y-4 text-right">
+            <div className="text-center">
+              <div className="text-3xl mb-2">📱</div>
+              <h3 className="text-white font-bold mb-1">إعداد المصادقة الثنائية</h3>
+              {setup2FA.configured ? (
+                <p className="text-green-400 text-sm">✅ المصادقة الثنائية مفعّلة بالفعل</p>
+              ) : (
+                <p className="text-yellow-400 text-sm">⚠️ غير مفعّلة بعد</p>
+              )}
+            </div>
+
+            <div className="text-center">
+              <p className="text-gray-400 text-sm mb-3">امسح هذا الكود بتطبيق Google Authenticator:</p>
+              <img src={setup2FA.qrUrl} alt="QR Code" className="mx-auto rounded-lg mb-3" style={{ background: "white", padding: "8px" }} />
+            </div>
+
+            <div>
+              <p className="text-gray-400 text-xs mb-1">أو أدخل هذا السر يدوياً:</p>
+              <div className="admin-input !bg-dark-800 text-xs font-mono text-center break-all" dir="ltr" onClick={(e) => {
+                navigator.clipboard.writeText(setup2FA.secret); toast.success("تم النسخ!");
+              }} style={{ cursor: "pointer" }}>
+                {setup2FA.secret}
+              </div>
+              <p className="text-gray-600 text-xs mt-1">اضغط للنسخ</p>
+            </div>
+
+            {!setup2FA.configured && (
+              <div className="rounded-xl p-3 text-xs text-right" style={{ background: "#f59e0b15", border: "1px solid #f59e0b30" }}>
+                <p className="text-yellow-400 font-bold mb-1">⚠️ خطوة مهمة:</p>
+                <p className="text-gray-400">بعد مسح الكود، أضف هذا المتغير في <strong>Vercel → Settings → Environment Variables</strong>:</p>
+                <div className="mt-2 admin-input !bg-dark-900 font-mono text-xs break-all" dir="ltr" onClick={() => {
+                  navigator.clipboard.writeText(`ADMIN_TOTP_SECRET=${setup2FA.secret}`); toast.success("تم النسخ!");
+                }} style={{ cursor: "pointer" }}>
+                  ADMIN_TOTP_SECRET={setup2FA.secret}
+                </div>
+                <p className="text-gray-500 mt-1">ثم اعمل Redeploy</p>
+              </div>
+            )}
+
+            <button onClick={() => { setLoginStep("password"); setSetup2FA(null); }} className="w-full py-2.5 rounded-xl font-bold text-sm border border-white/10 text-gray-400 hover:bg-white/5">← رجوع لتسجيل الدخول</button>
+          </div>
+        )}
+
         <Link href="/" className="block mt-4 text-sm text-gray-500">← المتجر</Link>
       </div>
     </div>
@@ -265,7 +429,7 @@ export default function AdminPage() {
           </div>
           <div className="flex items-center gap-2">
             <button onClick={updateOrderStatuses} disabled={syncing} className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50" style={{ background: "#3b82f6" }}>{syncing ? "..." : "📊 تحديث الطلبات"}</button>
-            <button onClick={() => setAuthed(false)} className="text-gray-500 hover:text-red-400 text-sm">خروج</button>
+            <button onClick={handleLogout} className="text-gray-500 hover:text-red-400 text-sm">خروج</button>
           </div>
         </div>
       </header>
