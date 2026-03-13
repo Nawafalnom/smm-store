@@ -131,6 +131,7 @@ export default function AdminPage() {
 
   function handleLogout() {
     localStorage.removeItem("admin_session");
+    sessionStorage.removeItem("admin_session");
     setAuthed(false);
     setPassword("");
     setTotpCode("");
