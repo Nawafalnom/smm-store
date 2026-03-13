@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase, STORE, PLATFORMS, ORDER_STATUSES, type Category, type Service, type Order, type Profile } from "@/lib/supabase";
+import { getProviderServices, getProviderBalance, getMultiOrderStatus } from "@/lib/smm-api";
 import toast from "react-hot-toast";
 import Link from "next/link";
 
@@ -29,6 +30,8 @@ export default function AdminPage() {
   const [editingSvc, setEditingSvc] = useState<Service | null>(null);
 
   const C = STORE.color; const A = STORE.accentColor;
+  const [apiBalance, setApiBalance] = useState("--");
+  const [syncing, setSyncing] = useState(false);
 
   function handleLogin() {
     if (password === (process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "admin123456")) {
@@ -51,7 +54,120 @@ export default function AdminPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { if (authed) fetchAll(); }, [authed, fetchAll]);
+  useEffect(() => { if (authed) { fetchAll(); fetchApiBalance(); } }, [authed, fetchAll]);
+
+  async function fetchApiBalance() {
+    try {
+      const res = await getProviderBalance();
+      if (res?.balance) setApiBalance(`$${Number(res.balance).toFixed(2)}`);
+    } catch { /* ignore */ }
+  }
+
+  async function syncProviderServices() {
+    setSyncing(true);
+    try {
+      const apiServices = await getProviderServices();
+      if (!Array.isArray(apiServices)) { toast.error("فشل جلب الخدمات من المزوّد"); setSyncing(false); return; }
+
+      // Get unique categories
+      const catNames = Array.from(new Set(apiServices.map((s: any) => s.category)));
+      
+      // Ensure categories exist
+      for (const name of catNames) {
+        const { data: existing } = await supabase.from("categories").select("id").eq("name", name).single();
+        if (!existing) {
+          await supabase.from("categories").insert({ name, sort_order: 0, is_active: true });
+        }
+      }
+
+      // Reload categories
+      const { data: allCats } = await supabase.from("categories").select("*");
+      const catMap: Record<string, string> = {};
+      (allCats || []).forEach((c: any) => { catMap[c.name] = c.id; });
+
+      // Upsert services
+      let added = 0, updated = 0;
+      for (const s of apiServices) {
+        const { data: existing } = await supabase.from("services").select("id").eq("api_service_id", s.service).single();
+        
+        const svcData = {
+          api_service_id: s.service,
+          name: s.name,
+          category_id: catMap[s.category] || "",
+          platform: s.category,
+          price_per_1000: Number(s.rate),
+          min_quantity: Number(s.min),
+          max_quantity: Number(s.max),
+          can_refill: s.refill || false,
+          can_cancel: s.cancel || false,
+          speed: s.type || "Default",
+          description: `${s.type} | Rate: $${s.rate}/1K | ${s.refill ? "♻️ Refill" : ""} ${s.cancel ? "❌ Cancel" : ""}`,
+          is_active: true,
+          sort_order: s.service,
+        };
+
+        if (existing) {
+          await supabase.from("services").update(svcData).eq("id", existing.id);
+          updated++;
+        } else {
+          await supabase.from("services").insert(svcData);
+          added++;
+        }
+      }
+
+      toast.success(`تم المزامنة! ${added} خدمة جديدة، ${updated} تحديث`);
+      fetchAll();
+    } catch (err) {
+      console.error(err);
+      toast.error("خطأ في المزامنة");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function updateAllOrderStatuses() {
+    setSyncing(true);
+    try {
+      // Get pending/processing orders with api_order_id
+      const { data: pendingOrders } = await supabase.from("orders")
+        .select("*")
+        .in("status", ["pending", "processing", "in_progress"])
+        .neq("api_order_id", "")
+        .limit(100);
+
+      if (!pendingOrders?.length) { toast("لا توجد طلبات قيد التنفيذ"); setSyncing(false); return; }
+
+      const apiIds = pendingOrders.map((o) => o.api_order_id);
+      const statuses = await getMultiOrderStatus(apiIds);
+
+      const statusMap: Record<string, string> = {
+        "Pending": "pending", "Processing": "processing", "In progress": "in_progress",
+        "Completed": "completed", "Cancelled": "cancelled", "Partial": "partial", "Canceled": "cancelled",
+      };
+
+      let updatedCount = 0;
+      for (const o of pendingOrders) {
+        const apiStatus = statuses?.[o.api_order_id];
+        if (apiStatus && !apiStatus.error) {
+          const newStatus = statusMap[apiStatus.status] || o.status;
+          await supabase.from("orders").update({
+            status: newStatus,
+            start_count: Number(apiStatus.start_count) || 0,
+            remains: Number(apiStatus.remains) || 0,
+          }).eq("id", o.id);
+          updatedCount++;
+        }
+      }
+
+      toast.success(`تم تحديث ${updatedCount} طلب`);
+      fetchAll();
+    } catch (err) {
+      console.error(err);
+      toast.error("خطأ في التحديث");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   // ── Category CRUD ──
   async function saveCat() {
@@ -130,18 +246,38 @@ export default function AdminPage() {
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Stats */}
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-5 gap-4 mb-6">
           {[
             { l: "الفئات", v: categories.length, c: C },
             { l: "الخدمات", v: services.length, c: A },
             { l: "الطلبات", v: orders.length, c: "#10b981" },
             { l: "المستخدمين", v: users.length, c: "#3b82f6" },
+            { l: "رصيد المزوّد", v: apiBalance, c: "#f59e0b" },
           ].map((s, i) => (
             <div key={i} className="card-dark p-4 text-center">
               <div className="font-display text-2xl font-900" style={{ color: s.c }}>{s.v}</div>
               <div className="text-gray-500 text-xs">{s.l}</div>
             </div>
           ))}
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-3 mb-6">
+          <button onClick={syncProviderServices} disabled={syncing}
+            className="px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50 transition"
+            style={{ background: "#10b981" }}>
+            {syncing ? "جاري المزامنة..." : "🔄 مزامنة الخدمات من API"}
+          </button>
+          <button onClick={updateAllOrderStatuses} disabled={syncing}
+            className="px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50 transition"
+            style={{ background: "#3b82f6" }}>
+            {syncing ? "جاري التحديث..." : "📊 تحديث حالة الطلبات"}
+          </button>
+          <button onClick={fetchApiBalance}
+            className="px-5 py-2.5 rounded-xl text-sm font-bold text-white transition"
+            style={{ background: "#f59e0b" }}>
+            💰 تحديث رصيد المزوّد
+          </button>
         </div>
 
         {/* Tabs */}
@@ -309,6 +445,10 @@ export default function AdminPage() {
                 {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               <input value={svcForm.name || ""} onChange={(e) => setSvcForm({ ...svcForm, name: e.target.value })} placeholder="اسم الخدمة" className="admin-input" />
+              <div>
+                <label className="text-gray-500 text-xs">API Service ID</label>
+                <input type="number" value={svcForm.api_service_id || 0} onChange={(e) => setSvcForm({ ...svcForm, api_service_id: Number(e.target.value) })} className="admin-input" dir="ltr" />
+              </div>
               <select value={svcForm.platform || ""} onChange={(e) => setSvcForm({ ...svcForm, platform: e.target.value })} className="admin-input">
                 {PLATFORMS.map((p) => <option key={p} value={p}>{p}</option>)}
               </select>
@@ -334,6 +474,8 @@ export default function AdminPage() {
               <textarea value={svcForm.description || ""} onChange={(e) => setSvcForm({ ...svcForm, description: e.target.value })} placeholder="الوصف" className="admin-input !h-20" />
               <input type="number" value={svcForm.sort_order || 0} onChange={(e) => setSvcForm({ ...svcForm, sort_order: Number(e.target.value) })} placeholder="الترتيب" className="admin-input" dir="ltr" />
               <label className="flex items-center gap-2 text-gray-300"><input type="checkbox" checked={svcForm.is_active} onChange={(e) => setSvcForm({ ...svcForm, is_active: e.target.checked })} /> مفعّل</label>
+              <label className="flex items-center gap-2 text-gray-300"><input type="checkbox" checked={svcForm.can_refill || false} onChange={(e) => setSvcForm({ ...svcForm, can_refill: e.target.checked })} /> يدعم التعويض (Refill)</label>
+              <label className="flex items-center gap-2 text-gray-300"><input type="checkbox" checked={svcForm.can_cancel || false} onChange={(e) => setSvcForm({ ...svcForm, can_cancel: e.target.checked })} /> يدعم الإلغاء (Cancel)</label>
               <button onClick={saveSvc} className="w-full py-3 rounded-xl font-bold text-white" style={{ background: A }}>حفظ</button>
             </div>
           </div>

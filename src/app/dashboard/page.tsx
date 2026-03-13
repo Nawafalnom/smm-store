@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase, STORE, ORDER_STATUSES, type Profile, type Order, type Category, type Service } from "@/lib/supabase";
+import { placeProviderOrder, getOrderStatus, cancelOrders, refillOrder } from "@/lib/smm-api";
 import toast from "react-hot-toast";
 
 export default function DashboardPage() {
@@ -79,21 +80,36 @@ export default function DashboardPage() {
     }
 
     try {
-      // Deduct balance
+      // 1. Call provider API to place the order
+      const apiResult = await placeProviderOrder(
+        selectedService.api_service_id,
+        orderLink,
+        qty
+      );
+
+      if (apiResult.error) {
+        toast.error(`خطأ من المزوّد: ${apiResult.error}`);
+        return;
+      }
+
+      // 2. Deduct balance
       const { error: balErr } = await supabase.from("profiles").update({
         balance: profile.balance - orderPrice,
         total_spent: (profile.total_spent || 0) + orderPrice,
       }).eq("id", user.id);
       if (balErr) throw balErr;
 
-      // Create order
+      // 3. Create order with API order ID
       const { error: ordErr } = await supabase.from("orders").insert({
         user_id: user.id,
         service_id: selectedService.id,
+        api_order_id: String(apiResult.order || ""),
         link: orderLink,
         quantity: qty,
         price: orderPrice,
         status: "pending",
+        start_count: 0,
+        remains: qty,
       });
       if (ordErr) throw ordErr;
 
@@ -398,16 +414,20 @@ export default function DashboardPage() {
                         <th className="py-3 px-3 text-right">السعر</th>
                         <th className="py-3 px-3 text-right">الحالة</th>
                         <th className="py-3 px-3 text-right">التاريخ</th>
+                        <th className="py-3 px-3 text-right">إجراءات</th>
                       </tr>
                     </thead>
                     <tbody>
                       {orders.map((o) => {
                         const st = ORDER_STATUSES[o.status] || ORDER_STATUSES.pending;
+                        const svc = (o as any).service;
+                        const canCancel = svc?.can_cancel && ["pending", "processing"].includes(o.status);
+                        const canRefill = svc?.can_refill && ["completed", "partial"].includes(o.status);
                         return (
                           <tr key={o.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                            <td className="py-3 px-3 text-gray-500 text-xs font-mono">{o.id?.slice(0, 8)}</td>
-                            <td className="py-3 px-3 text-gray-300">{(o as any).service?.name || "-"}</td>
-                            <td className="py-3 px-3 text-gray-500 text-xs max-w-[150px] truncate" dir="ltr">{o.link}</td>
+                            <td className="py-3 px-3 text-gray-500 text-xs font-mono">{o.api_order_id || o.id?.slice(0, 8)}</td>
+                            <td className="py-3 px-3 text-gray-300 text-xs">{svc?.name || "-"}</td>
+                            <td className="py-3 px-3 text-gray-500 text-xs max-w-[120px] truncate" dir="ltr">{o.link}</td>
                             <td className="py-3 px-3 text-white font-bold">{o.quantity.toLocaleString()}</td>
                             <td className="py-3 px-3 font-bold" style={{ color: C }}>${o.price.toFixed(2)}</td>
                             <td className="py-3 px-3">
@@ -416,6 +436,33 @@ export default function DashboardPage() {
                               </span>
                             </td>
                             <td className="py-3 px-3 text-gray-500 text-xs">{new Date(o.created_at!).toLocaleDateString("ar-EG")}</td>
+                            <td className="py-3 px-3">
+                              <div className="flex gap-1">
+                                {canCancel && (
+                                  <button onClick={async () => {
+                                    if (!confirm("هل تريد إلغاء الطلب؟")) return;
+                                    const res = await cancelOrders([o.api_order_id]);
+                                    if (res?.[0]?.cancel && !res[0].cancel.error) {
+                                      await supabase.from("orders").update({ status: "cancelled" }).eq("id", o.id);
+                                      toast.success("تم إلغاء الطلب");
+                                      fetchOrders(user.id);
+                                    } else { toast.error("فشل الإلغاء"); }
+                                  }} className="text-xs px-2 py-1 rounded bg-red-500/15 text-red-400 hover:bg-red-500/25">
+                                    إلغاء
+                                  </button>
+                                )}
+                                {canRefill && (
+                                  <button onClick={async () => {
+                                    const res = await refillOrder(o.api_order_id);
+                                    if (res?.refill) {
+                                      toast.success("تم طلب التعويض");
+                                    } else { toast.error("فشل التعويض"); }
+                                  }} className="text-xs px-2 py-1 rounded bg-green-500/15 text-green-400 hover:bg-green-500/25">
+                                    تعويض
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                           </tr>
                         );
                       })}

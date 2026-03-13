@@ -30,12 +30,15 @@ export interface Service {
   category_id: string;
   name: string;
   platform: string;
+  api_service_id: number;
   price_per_1000: number;
   min_quantity: number;
   max_quantity: number;
   speed: string;
   guarantee_days: number;
   description: string;
+  can_refill: boolean;
+  can_cancel: boolean;
   is_active: boolean;
   sort_order: number;
   category?: Category;
@@ -45,10 +48,13 @@ export interface Order {
   id?: string;
   user_id: string;
   service_id: string;
+  api_order_id: string;
   link: string;
   quantity: number;
   price: number;
   status: string;
+  start_count: number;
+  remains: number;
   created_at?: string;
   service?: Service;
 }
