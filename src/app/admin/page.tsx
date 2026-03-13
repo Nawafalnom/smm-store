@@ -16,9 +16,34 @@ interface ApiService {
 }
 interface ApiCategory { name: string; services: ApiService[]; selected: boolean; expanded: boolean; }
 
+// Helper to read session
+function getAdminSession(): { authed: boolean; pw: string } {
+  if (typeof window === "undefined") return { authed: false, pw: "" };
+  try {
+    const saved = localStorage.getItem("admin_session");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed.authed && parsed.token && parsed.expiry > Date.now()) {
+        return { authed: true, pw: parsed.pw || "" };
+      }
+      localStorage.removeItem("admin_session");
+    }
+  } catch {}
+  return { authed: false, pw: "" };
+}
+
+function saveAdminSession(pw: string, token: string) {
+  const session = { authed: true, token, pw, expiry: Date.now() + 7 * 24 * 60 * 60 * 1000 };
+  localStorage.setItem("admin_session", JSON.stringify(session));
+}
+
+function clearAdminSession() {
+  localStorage.removeItem("admin_session");
+}
+
 export default function AdminPage() {
+  const [mounted, setMounted] = useState(false);
   const [authed, setAuthed] = useState(false);
-  const [authLoading, setAuthLoading] = useState(true);
   const [password, setPassword] = useState("");
   const [loginStep, setLoginStep] = useState<"password" | "2fa" | "setup2fa">("password");
   const [totpCode, setTotpCode] = useState("");
@@ -54,22 +79,14 @@ export default function AdminPage() {
   const [editingSvc, setEditingSvc] = useState<Service | null>(null);
   const [svcForm, setSvcForm] = useState<Partial<Service>>({});
 
-  // ── Check saved session on mount ──
+  // ── Read session on mount ──
   useEffect(() => {
-    try {
-      const saved = sessionStorage.getItem("admin_session") || localStorage.getItem("admin_session");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.authed && parsed.token && parsed.expiry > Date.now()) {
-          setPassword(parsed.pw || "");
-          setAuthed(true);
-        } else {
-          localStorage.removeItem("admin_session");
-          sessionStorage.removeItem("admin_session");
-        }
-      }
-    } catch {}
-    setAuthLoading(false);
+    const session = getAdminSession();
+    if (session.authed) {
+      setAuthed(true);
+      setPassword(session.pw);
+    }
+    setMounted(true);
   }, []);
 
   async function handleLogin() {
@@ -89,9 +106,7 @@ export default function AdminPage() {
       }
 
       // No 2FA - login directly
-      const session = { authed: true, token: res.token, pw: password, expiry: Date.now() + 7 * 24 * 60 * 60 * 1000 };
-      localStorage.setItem("admin_session", JSON.stringify(session));
-      sessionStorage.setItem("admin_session", JSON.stringify(session));
+      saveAdminSession(password, res.token);
       setAuthed(true);
       toast.success("تم تسجيل الدخول");
     } catch { toast.error("خطأ في الاتصال"); }
@@ -108,9 +123,7 @@ export default function AdminPage() {
 
       if (!res.success) { toast.error(res.error || "الكود غير صحيح"); return; }
 
-      const session = { authed: true, token: res.token, pw: password, expiry: Date.now() + 7 * 24 * 60 * 60 * 1000 };
-      localStorage.setItem("admin_session", JSON.stringify(session));
-      sessionStorage.setItem("admin_session", JSON.stringify(session));
+      saveAdminSession(password, res.token);
       setAuthed(true);
       toast.success("تم تسجيل الدخول");
     } catch { toast.error("خطأ"); }
@@ -130,8 +143,7 @@ export default function AdminPage() {
   }
 
   function handleLogout() {
-    localStorage.removeItem("admin_session");
-    sessionStorage.removeItem("admin_session");
+    clearAdminSession();
     setAuthed(false);
     setPassword("");
     setTotpCode("");
@@ -317,7 +329,7 @@ export default function AdminPage() {
   async function updateBalance(uid: string) { const v = prompt("الرصيد الجديد:"); if (!v) return; await supabase.from("profiles").update({ balance: Number(v) }).eq("id", uid); toast.success("تم"); fetchAll(); }
 
   // ── LOADING ──
-  if (authLoading) return (
+  if (!mounted) return (
     <div className="min-h-screen flex items-center justify-center bg-dark-900">
       <div className="w-10 h-10 rounded-full border-4 border-t-transparent animate-spin" style={{ borderColor: `${A}40`, borderTopColor: "transparent" }} />
     </div>
