@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase, STORE } from "@/lib/supabase";
@@ -10,6 +10,7 @@ export default function AuthPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"login" | "register" | "verify">("login");
   const [loading, setLoading] = useState(false);
+  const [refCode, setRefCode] = useState("");
   const [form, setForm] = useState({
     email: "",
     password: "",
@@ -17,6 +18,19 @@ export default function AuthPage() {
     full_name: "",
     otp: "",
   });
+
+  // Capture referral code from URL
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get("ref");
+    if (ref) {
+      setRefCode(ref);
+      setMode("register");
+      // Clean URL
+      window.history.replaceState({}, "", "/auth");
+    }
+  }, []);
 
   async function handleSubmit() {
     if (!form.email || !form.password) {
@@ -32,12 +46,18 @@ export default function AuthPage() {
     try {
       if (mode === "verify") {
         // Verify OTP code
-        const { error } = await supabase.auth.verifyOtp({
+        const { data: verifyData, error } = await supabase.auth.verifyOtp({
           email: form.email,
           token: form.otp,
           type: "signup",
         });
         if (error) throw error;
+
+        // After verification, link referral if we have a code
+        if (refCode && verifyData?.user?.id) {
+          await linkReferral(verifyData.user.id, refCode);
+        }
+
         toast.success("تم تأكيد البريد بنجاح!");
         router.push("/dashboard");
       } else if (mode === "login") {
@@ -49,7 +69,7 @@ export default function AuthPage() {
         toast.success("تم تسجيل الدخول بنجاح!");
         router.push("/dashboard");
       } else {
-        const { error } = await supabase.auth.signUp({
+        const { data: signUpData, error } = await supabase.auth.signUp({
           email: form.email,
           password: form.password,
           options: {
@@ -60,6 +80,15 @@ export default function AuthPage() {
           },
         });
         if (error) throw error;
+
+        // If auto-confirmed (no email verification needed), link referral now
+        if (signUpData?.user?.id && signUpData?.session) {
+          if (refCode) await linkReferral(signUpData.user.id, refCode);
+          toast.success("تم إنشاء الحساب بنجاح!");
+          router.push("/dashboard");
+          return;
+        }
+
         toast.success("تم إرسال كود التأكيد إلى بريدك الإلكتروني!");
         setMode("verify");
       }
@@ -81,7 +110,26 @@ export default function AuthPage() {
     }
   }
 
+  // Link referral: find referrer by code, update referred_by
+  async function linkReferral(userId: string, code: string) {
+    try {
+      const { data: referrer } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("referral_code", code.toUpperCase())
+        .single();
+      
+      if (referrer && referrer.id !== userId) {
+        await supabase.from("profiles").update({ referred_by: referrer.id }).eq("id", userId);
+      }
+    } catch { /* silently fail */ }
+  }
+
   async function handleGoogleLogin() {
+    // Store ref code before redirect
+    if (refCode && typeof window !== "undefined") {
+      localStorage.setItem("growence_ref", refCode);
+    }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: `${window.location.origin}/dashboard` },
@@ -114,6 +162,14 @@ export default function AuthPage() {
 
           {/* Form Card */}
           <div className="card-dark p-7">
+            {/* Referral Banner */}
+            {refCode && mode === "register" && (
+              <div className="rounded-xl p-3 mb-4 text-center text-sm" style={{ background: "#10b98110", border: "1px solid #10b98125" }}>
+                <span className="text-green-400 font-bold">🎉 تم دعوتك!</span>
+                <span className="text-gray-400 mr-1">كود الإحالة: </span>
+                <span className="font-mono font-bold" style={{ color: STORE.accentColor }}>{refCode}</span>
+              </div>
+            )}
             <div className="space-y-4">
               {mode === "verify" ? (
                 <>

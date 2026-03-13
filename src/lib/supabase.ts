@@ -15,8 +15,45 @@ export interface Profile {
   total_spent: number;
   level: number;
   discount: number;
+  api_key?: string;
+  api_enabled?: boolean;
+  referral_code?: string;
+  referred_by?: string;
+  referral_earnings?: number;
+  referral_rate?: number;
   created_at?: string;
 }
+
+export interface SupportTicket {
+  id?: string;
+  user_id: string;
+  subject: string;
+  message: string;
+  status: string;
+  priority: string;
+  admin_reply: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ReferralCommission {
+  id?: string;
+  referrer_id: string;
+  referred_id: string;
+  order_id: string;
+  order_amount: number;
+  commission_rate: number;
+  commission_amount: number;
+  status: string;
+  created_at?: string;
+}
+
+export const TICKET_STATUSES: Record<string, { label: string; color: string }> = {
+  open: { label: "مفتوحة", color: "#f59e0b" },
+  in_progress: { label: "قيد المعالجة", color: "#3b82f6" },
+  resolved: { label: "تم الرد", color: "#10b981" },
+  closed: { label: "مغلقة", color: "#6b7280" },
+};
 
 export interface Provider {
   id?: string;

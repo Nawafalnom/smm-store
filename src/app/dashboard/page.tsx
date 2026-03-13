@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase, STORE, ORDER_STATUSES, DEPOSIT_STATUSES, PAYMENT_METHODS, type Profile, type Order, type Category, type Service, type Deposit } from "@/lib/supabase";
+import { supabase, STORE, ORDER_STATUSES, DEPOSIT_STATUSES, PAYMENT_METHODS, TICKET_STATUSES, type Profile, type Order, type Category, type Service, type Deposit, type SupportTicket, type ReferralCommission } from "@/lib/supabase";
 import { placeProviderOrder, cancelOrders, refillOrder, getOrderStatus } from "@/lib/smm-api";
 import toast from "react-hot-toast";
 
@@ -53,7 +53,7 @@ function catMatchesPlatform(catName: string, platform: typeof PLATFORM_FILTERS[0
 export default function DashboardPage() {
   const router = useRouter();
 
-  const VALID_VIEWS = ["new_order", "orders", "services", "add_funds", "deposits", "settings"] as const;
+  const VALID_VIEWS = ["new_order", "orders", "services", "add_funds", "deposits", "tickets", "affiliate", "settings"] as const;
   type ViewType = typeof VALID_VIEWS[number];
 
   // Read initial tab from URL
@@ -110,6 +110,20 @@ export default function DashboardPage() {
   const [depositTxId, setDepositTxId] = useState("");
   const [depositSubmitting, setDepositSubmitting] = useState(false);
 
+  // ── Support Tickets State ──
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [ticketSubject, setTicketSubject] = useState("");
+  const [ticketMessage, setTicketMessage] = useState("");
+  const [ticketSubmitting, setTicketSubmitting] = useState(false);
+  const [showNewTicket, setShowNewTicket] = useState(false);
+
+  // ── Affiliate State ──
+  const [referrals, setReferrals] = useState<any[]>([]);
+  const [commissions, setCommissions] = useState<ReferralCommission[]>([]);
+
+  // ── API Key State ──
+  const [showApiKey, setShowApiKey] = useState(false);
+
   useEffect(() => { checkAuth(); }, []);
 
   // Handle Binance Pay return
@@ -130,13 +144,34 @@ export default function DashboardPage() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { router.push("/auth"); return; }
     setUser(session.user);
-    await Promise.all([fetchProfile(session.user.id), fetchOrders(session.user.id), fetchDeposits(session.user.id), fetchCategories(), fetchServices()]);
+
+    // Handle Google OAuth referral linkage
+    if (typeof window !== "undefined") {
+      const storedRef = localStorage.getItem("growence_ref");
+      if (storedRef) {
+        localStorage.removeItem("growence_ref");
+        try {
+          const { data: referrer } = await supabase.from("profiles").select("id").eq("referral_code", storedRef.toUpperCase()).single();
+          if (referrer && referrer.id !== session.user.id) {
+            const { data: myProfile } = await supabase.from("profiles").select("referred_by").eq("id", session.user.id).single();
+            if (myProfile && !myProfile.referred_by) {
+              await supabase.from("profiles").update({ referred_by: referrer.id }).eq("id", session.user.id);
+            }
+          }
+        } catch { /* ignore */ }
+      }
+    }
+
+    await Promise.all([fetchProfile(session.user.id), fetchOrders(session.user.id), fetchDeposits(session.user.id), fetchTickets(session.user.id), fetchCategories(), fetchServices()]);
     setLoading(false);
   }
 
   async function fetchProfile(uid: string) { const { data } = await supabase.from("profiles").select("*").eq("id", uid).single(); if (data) setProfile(data); }
   async function fetchOrders(uid: string) { const { data } = await supabase.from("orders").select("*, service:services(*, provider:providers(id))").eq("user_id", uid).order("created_at", { ascending: false }).limit(50); if (data) setOrders(data); }
   async function fetchDeposits(uid: string) { const { data } = await supabase.from("deposits").select("*").eq("user_id", uid).order("created_at", { ascending: false }).limit(50).then(r => r, () => ({ data: null })); if (data) setDeposits(data as any); }
+  async function fetchTickets(uid: string) { const { data } = await supabase.from("support_tickets").select("*").eq("user_id", uid).order("created_at", { ascending: false }).limit(50).then(r => r, () => ({ data: null })); if (data) setTickets(data as any); }
+  async function fetchReferrals(uid: string) { const { data } = await supabase.from("profiles").select("id, username, created_at, total_spent").eq("referred_by", uid).order("created_at", { ascending: false }).then(r => r, () => ({ data: null })); if (data) setReferrals(data); }
+  async function fetchCommissions(uid: string) { const { data } = await supabase.from("referral_commissions").select("*").eq("referrer_id", uid).order("created_at", { ascending: false }).limit(50).then(r => r, () => ({ data: null })); if (data) setCommissions(data as any); }
   async function fetchCategories() { const { data } = await supabase.from("categories").select("*").eq("is_active", true).order("sort_order"); if (data) setCategories(data); }
   async function fetchServices() { const { data } = await supabase.from("services").select("*, category:categories(*), provider:providers(id, name)").eq("is_active", true).order("sort_order"); if (data) setServices(data); }
 
@@ -274,6 +309,8 @@ export default function DashboardPage() {
     { key: "add_funds", icon: "💰", label: "شحن الرصيد" },
     { key: "deposits", icon: "📜", label: "سجل الشحن" },
     { key: "services", icon: "❤️", label: "الخدمات" },
+    { key: "tickets", icon: "🎫", label: "الدعم" },
+    { key: "affiliate", icon: "🤝", label: "الإحالة" },
     { key: "settings", icon: "⚙️", label: "الإعدادات" },
   ];
 
@@ -311,7 +348,7 @@ export default function DashboardPage() {
           ))}
         </nav>
         <div className="px-2 pb-3 space-y-0.5">
-          <a href={`https://wa.me/${STORE.whatsapp.replace(/[^0-9]/g, "")}`} target="_blank" className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-gray-300 hover:bg-white/[0.03] transition">💬 الدعم</a>
+          <a href={`https://wa.me/${STORE.whatsapp.replace(/[^0-9]/g, "")}`} target="_blank" className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-gray-300 hover:bg-white/[0.03] transition">💬 واتساب</a>
           <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-red-400/60 hover:text-red-400 hover:bg-red-400/5 transition">🚪 خروج</button>
         </div>
       </aside>
@@ -918,6 +955,197 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* ═══ SUPPORT TICKETS ═══ */}
+          {activeView === "tickets" && (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-white">🎫 تذاكر الدعم ({tickets.length})</h2>
+                <button onClick={() => setShowNewTicket(!showNewTicket)} className="px-4 py-2 rounded-xl text-sm font-bold text-white" style={{ background: A }}>
+                  {showNewTicket ? "✕ إغلاق" : "+ تذكرة جديدة"}
+                </button>
+              </div>
+
+              {/* New Ticket Form */}
+              {showNewTicket && (
+                <div className="card-dark p-5 mb-5 animate-fade-in">
+                  <h3 className="text-sm font-bold text-gray-400 mb-3">📝 إرسال تذكرة جديدة</h3>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-gray-400 text-xs mb-1">الموضوع</label>
+                      <input type="text" value={ticketSubject} onChange={e => setTicketSubject(e.target.value)}
+                        placeholder="مثال: مشكلة في طلب #12345" className="admin-input" maxLength={200} />
+                    </div>
+                    <div>
+                      <label className="block text-gray-400 text-xs mb-1">تفاصيل المشكلة</label>
+                      <textarea value={ticketMessage} onChange={e => setTicketMessage(e.target.value)}
+                        placeholder="اشرح مشكلتك بالتفصيل... يمكنك إضافة روابط الطلبات أو لقطات شاشة"
+                        className="admin-input !h-32 resize-none" maxLength={2000} />
+                      <div className="text-left text-[10px] text-gray-600 mt-1">{ticketMessage.length}/2000</div>
+                    </div>
+                    <button onClick={async () => {
+                      if (!ticketSubject.trim() || !ticketMessage.trim()) { toast.error("الرجاء تعبئة الموضوع والرسالة"); return; }
+                      setTicketSubmitting(true);
+                      try {
+                        const { error } = await supabase.from("support_tickets").insert({
+                          user_id: user.id,
+                          subject: ticketSubject.trim(),
+                          message: ticketMessage.trim(),
+                          status: "open",
+                          priority: "normal",
+                        });
+                        if (error) throw error;
+                        toast.success("تم إرسال التذكرة بنجاح! سيتم الرد عليها قريباً ✓");
+                        setTicketSubject(""); setTicketMessage(""); setShowNewTicket(false);
+                        fetchTickets(user.id);
+                      } catch (err: any) { toast.error(err.message || "خطأ في إرسال التذكرة"); }
+                      finally { setTicketSubmitting(false); }
+                    }} disabled={ticketSubmitting || !ticketSubject.trim() || !ticketMessage.trim()}
+                      className="w-full py-3 rounded-xl font-bold text-white transition-all hover:brightness-110 disabled:opacity-40"
+                      style={{ background: A }}>
+                      {ticketSubmitting ? "جاري الإرسال..." : "📩 إرسال التذكرة"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Tickets List */}
+              {tickets.length === 0 ? (
+                <div className="card-dark p-16 text-center">
+                  <div className="text-5xl mb-4 opacity-30">🎫</div>
+                  <div className="text-gray-500 mb-2">لا توجد تذاكر دعم</div>
+                  <button onClick={() => setShowNewTicket(true)} className="text-sm font-bold mt-2" style={{ color: A }}>أرسل تذكرة الآن ←</button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {tickets.map(t => {
+                    const ts = TICKET_STATUSES[t.status] || TICKET_STATUSES.open;
+                    return (
+                      <div key={t.id} className="card-dark p-4">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ background: `${ts.color}15`, color: ts.color }}>{ts.label}</span>
+                              <span className="text-[10px] text-gray-600">{t.created_at ? new Date(t.created_at).toLocaleDateString("ar-EG", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</span>
+                            </div>
+                            <h4 className="text-white font-bold text-sm">{t.subject}</h4>
+                          </div>
+                        </div>
+                        <div className="text-gray-400 text-sm leading-relaxed whitespace-pre-wrap mb-2">{t.message}</div>
+                        {t.admin_reply && (
+                          <div className="mt-3 rounded-xl p-3" style={{ background: `${C}08`, border: `1px solid ${C}20` }}>
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                              <span className="text-xs font-bold" style={{ color: C }}>💬 رد الإدارة</span>
+                              {t.updated_at && <span className="text-[10px] text-gray-600">{new Date(t.updated_at).toLocaleDateString("ar-EG", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>}
+                            </div>
+                            <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">{t.admin_reply}</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ═══ AFFILIATE / REFERRAL ═══ */}
+          {activeView === "affiliate" && (() => {
+            // Lazy load referrals
+            if (referrals.length === 0 && profile?.id) {
+              fetchReferrals(profile.id);
+              fetchCommissions(profile.id);
+            }
+            const refLink = typeof window !== "undefined" ? `${window.location.origin}/auth?ref=${profile?.referral_code || ""}` : "";
+            return (
+              <div>
+                <h2 className="text-lg font-bold text-white mb-4">🤝 نظام الإحالة</h2>
+
+                {/* Stats Cards */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+                  {[
+                    { label: "أرباح الإحالة", value: `$${(profile?.referral_earnings || 0).toFixed(2)}`, icon: "💰", color: "#10b981" },
+                    { label: "نسبة العمولة", value: `${profile?.referral_rate || 5}%`, icon: "📊", color: A },
+                    { label: "المُحالين", value: String(referrals.length), icon: "👥", color: C },
+                    { label: "العمولات", value: String(commissions.length), icon: "🧾", color: "#f59e0b" },
+                  ].map((s, i) => (
+                    <div key={i} className="card-dark p-3">
+                      <div className="flex items-center justify-between mb-1"><span className="text-gray-500 text-xs">{s.label}</span><span className="text-sm">{s.icon}</span></div>
+                      <div className="font-display text-lg font-900" style={{ color: s.color }}>{s.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Referral Link */}
+                <div className="card-dark p-5 mb-5">
+                  <h3 className="text-sm font-bold text-gray-400 mb-3">🔗 رابط الإحالة الخاص بك</h3>
+                  <div className="flex gap-2">
+                    <input type="text" value={refLink} readOnly className="admin-input flex-1 !text-xs" dir="ltr" />
+                    <button onClick={() => { navigator.clipboard.writeText(refLink); toast.success("تم نسخ الرابط!"); }}
+                      className="px-4 py-2 rounded-xl text-sm font-bold text-white shrink-0" style={{ background: A }}>📋 نسخ</button>
+                  </div>
+                  <div className="mt-3 rounded-xl p-3 text-xs text-gray-500 leading-relaxed" style={{ background: "#10b98108", border: "1px solid #10b98115" }}>
+                    <span className="text-green-400 font-bold">💡 كيف يعمل:</span> شارك رابط الإحالة مع أصدقائك. عندما يسجّل شخص عبر رابطك ويشتري خدمات، تحصل على <span className="text-green-400 font-bold">{profile?.referral_rate || 5}%</span> عمولة تلقائياً على كل طلب مكتمل!
+                  </div>
+                  {/* Referral Code */}
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="text-gray-500 text-xs">كود الإحالة:</span>
+                    <span className="font-mono font-bold text-sm" style={{ color: A }}>{profile?.referral_code || "..."}</span>
+                    <button onClick={() => { navigator.clipboard.writeText(profile?.referral_code || ""); toast.success("تم النسخ!"); }}
+                      className="px-2 py-0.5 rounded bg-white/5 text-[10px] text-gray-400 hover:text-white">نسخ</button>
+                  </div>
+                </div>
+
+                {/* Referred Users */}
+                <div className="card-dark p-5 mb-5">
+                  <h3 className="text-sm font-bold text-gray-400 mb-3">👥 المستخدمين المُحالين ({referrals.length})</h3>
+                  {referrals.length === 0 ? (
+                    <div className="text-center py-8 text-gray-600 text-sm">لا يوجد مُحالين بعد — شارك رابطك!</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {referrals.map((r: any) => (
+                        <div key={r.id} className="flex items-center justify-between py-2 border-b border-white/5">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: `${C}30` }}>{r.username?.charAt(0).toUpperCase()}</div>
+                            <div>
+                              <div className="text-white text-sm font-bold">{r.username}</div>
+                              <div className="text-gray-600 text-[10px]">{r.created_at ? new Date(r.created_at).toLocaleDateString("ar-EG") : ""}</div>
+                            </div>
+                          </div>
+                          <div className="text-xs text-gray-500">إنفاق: ${(r.total_spent || 0).toFixed(2)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Commission History */}
+                <div className="card-dark p-5">
+                  <h3 className="text-sm font-bold text-gray-400 mb-3">🧾 سجل العمولات ({commissions.length})</h3>
+                  {commissions.length === 0 ? (
+                    <div className="text-center py-8 text-gray-600 text-sm">لا توجد عمولات بعد</div>
+                  ) : (
+                    <div className="overflow-x-auto"><table className="w-full text-xs">
+                      <thead><tr className="border-b border-white/5 text-gray-500">
+                        <th className="py-2 px-2 text-right">التاريخ</th>
+                        <th className="py-2 px-2 text-right">مبلغ الطلب</th>
+                        <th className="py-2 px-2 text-right">النسبة</th>
+                        <th className="py-2 px-2 text-right">العمولة</th>
+                      </tr></thead>
+                      <tbody>{commissions.map((c) => (
+                        <tr key={c.id} className="border-b border-white/5">
+                          <td className="py-2 px-2 text-gray-500">{c.created_at ? new Date(c.created_at).toLocaleDateString("ar-EG", { month: "short", day: "numeric" }) : ""}</td>
+                          <td className="py-2 px-2 text-gray-300">${c.order_amount.toFixed(4)}</td>
+                          <td className="py-2 px-2 text-gray-400">{c.commission_rate}%</td>
+                          <td className="py-2 px-2 font-bold" style={{ color: "#10b981" }}>+${c.commission_amount.toFixed(4)}</td>
+                        </tr>
+                      ))}</tbody>
+                    </table></div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* ═══ SETTINGS ═══ */}
           {activeView === "settings" && (
             <div className="max-w-lg">
@@ -926,6 +1154,44 @@ export default function DashboardPage() {
                 <div><label className="block text-gray-400 text-sm mb-1">اسم المستخدم</label><input value={profile?.username || ""} className="admin-input" readOnly dir="ltr" /></div>
                 <div><label className="block text-gray-400 text-sm mb-1">البريد</label><input value={user?.email || ""} className="admin-input" readOnly dir="ltr" /></div>
                 <div><label className="block text-gray-400 text-sm mb-1">المستوى</label><div className="admin-input !bg-dark-800">المستوى {profile?.level || 1} — خصم {profile?.discount || 0}%</div></div>
+              </div>
+
+              {/* API Key Section */}
+              <div className="card-dark p-6 mt-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-bold text-gray-400">🔑 مفتاح API (للموزّعين)</h3>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${profile?.api_enabled ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>
+                    {profile?.api_enabled ? "مُفعّل" : "غير مُفعّل"}
+                  </span>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex gap-2">
+                    <input type={showApiKey ? "text" : "password"} value={profile?.api_key || "..."} readOnly className="admin-input flex-1 !text-xs font-mono" dir="ltr" />
+                    <button onClick={() => setShowApiKey(!showApiKey)}
+                      className="px-3 py-2 rounded-xl text-xs font-bold bg-white/5 text-gray-400 hover:text-white shrink-0">
+                      {showApiKey ? "🙈 إخفاء" : "👁️ عرض"}
+                    </button>
+                    <button onClick={() => { navigator.clipboard.writeText(profile?.api_key || ""); toast.success("تم نسخ المفتاح!"); }}
+                      className="px-3 py-2 rounded-xl text-xs font-bold bg-white/5 text-gray-400 hover:text-white shrink-0">📋</button>
+                  </div>
+                  <div className="rounded-xl p-3 text-xs text-gray-500 leading-relaxed" style={{ background: "#6c5ce708", border: "1px solid #6c5ce715" }}>
+                    <span className="font-bold" style={{ color: C }}>📡 API Endpoint:</span>
+                    <div className="font-mono text-[10px] mt-1 p-2 rounded bg-black/30 text-gray-400" dir="ltr">
+                      POST {typeof window !== "undefined" ? window.location.origin : ""}/api/v2
+                    </div>
+                    <div className="mt-2">
+                      <span className="font-bold text-gray-400">الإجراءات المتاحة:</span> services, balance, add, status, refill, cancel
+                    </div>
+                    <div className="mt-1">
+                      <span className="font-bold text-gray-400">المفاتيح المطلوبة:</span> key (API Key) + action
+                    </div>
+                  </div>
+                  {!profile?.api_enabled && (
+                    <div className="rounded-xl p-3 text-xs leading-relaxed" style={{ background: "#f59e0b08", border: "1px solid #f59e0b15" }}>
+                      <span className="text-yellow-400 font-bold">⚠️</span> الـ API غير مُفعّل حالياً. تواصل مع الإدارة لتفعيله.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

@@ -857,8 +857,10 @@ export default function AdminPage() {
 
         {/* ═══ USERS ═══ */}
         {!loading && tab === "users" && (
-          <div className="overflow-x-auto"><table className="w-full text-sm">
-            <thead><tr className="border-b border-white/5 text-gray-500"><th className="py-2 px-2 text-right">المستخدم</th><th className="py-2 px-2 text-right">الاسم</th><th className="py-2 px-2 text-right">الرصيد</th><th className="py-2 px-2 text-right">الإنفاق</th><th className="py-2 px-2 text-right">المستوى</th><th className="py-2 px-2 text-right">التاريخ</th><th className="py-2 px-2 text-right">-</th></tr></thead>
+          <div>
+            <h2 className="text-lg font-bold text-gray-300 mb-4">👥 المستخدمين ({users.length})</h2>
+            <div className="overflow-x-auto"><table className="w-full text-sm">
+            <thead><tr className="border-b border-white/5 text-gray-500"><th className="py-2 px-2 text-right">المستخدم</th><th className="py-2 px-2 text-right">الاسم</th><th className="py-2 px-2 text-right">الرصيد</th><th className="py-2 px-2 text-right">الإنفاق</th><th className="py-2 px-2 text-right">المستوى</th><th className="py-2 px-2 text-right">API</th><th className="py-2 px-2 text-right">إحالات</th><th className="py-2 px-2 text-right">التاريخ</th><th className="py-2 px-2 text-right">-</th></tr></thead>
             <tbody>{users.map(u => (
               <tr key={u.id} className="border-b border-white/5 hover:bg-white/[0.02]">
                 <td className="py-2 px-2 text-white font-bold">{u.username}</td>
@@ -866,11 +868,26 @@ export default function AdminPage() {
                 <td className="py-2 px-2 font-bold" style={{ color: P }}>${u.balance.toFixed(2)}</td>
                 <td className="py-2 px-2 text-gray-400">${u.total_spent.toFixed(2)}</td>
                 <td className="py-2 px-2"><span className="px-2 py-0.5 rounded-full text-xs" style={{ background: `${A}15`, color: A }}>Lv.{u.level}</span></td>
+                <td className="py-2 px-2">
+                  <button onClick={async () => {
+                    const newVal = !(u as any).api_enabled;
+                    await supabase.from("profiles").update({ api_enabled: newVal }).eq("id", u.id);
+                    toast.success(newVal ? "API مُفعّل" : "API مُعطّل");
+                    fetchAll();
+                  }} className={`px-2 py-0.5 rounded text-xs font-bold ${(u as any).api_enabled ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>
+                    {(u as any).api_enabled ? "✓ مفعّل" : "✕ معطّل"}
+                  </button>
+                </td>
+                <td className="py-2 px-2 text-gray-500 text-xs">
+                  {(u as any).referral_code && <span className="font-mono">{(u as any).referral_code}</span>}
+                  {(u as any).referral_earnings > 0 && <span className="text-green-400 mr-1">(${((u as any).referral_earnings || 0).toFixed(2)})</span>}
+                </td>
                 <td className="py-2 px-2 text-gray-500 text-xs">{u.created_at ? formatDate(u.created_at) : "-"}</td>
                 <td className="py-2 px-2"><button onClick={() => updateBalance(u.id)} className="px-2 py-1 rounded bg-green-500/15 text-green-400 text-xs">تعديل</button></td>
               </tr>
             ))}</tbody>
           </table></div>
+          </div>
         )}
 
         {/* ═══ TICKETS ═══ */}

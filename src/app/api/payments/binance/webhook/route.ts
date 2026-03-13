@@ -36,25 +36,43 @@ export async function POST(req: NextRequest) {
         data = body.data;
       }
 
-      const prepayId = data?.prepayId || data?.merchantTradeNo || "";
+      const prepayId = data?.prepayId || "";
+      const merchantTradeNo = data?.merchantTradeNo || "";
       const transactionId = data?.transactionId || body.bizId || "";
 
-      if (!prepayId) {
-        console.error("Binance webhook: no prepayId found");
+      if (!prepayId && !merchantTradeNo) {
+        console.error("Binance webhook: no prepayId or merchantTradeNo found");
         return NextResponse.json({ returnCode: "SUCCESS", returnMessage: "OK" });
       }
 
-      // Find deposit by prepayId (stored in transaction_id field)
-      const { data: deposit } = await supabase
-        .from("deposits")
-        .select("*")
-        .eq("transaction_id", prepayId)
-        .eq("method", "binance_pay")
-        .single();
+      // Find deposit — try prepayId first, then merchantTradeNo
+      let deposit: any = null;
+
+      if (prepayId) {
+        const { data: d } = await supabase
+          .from("deposits")
+          .select("*")
+          .eq("transaction_id", prepayId)
+          .eq("method", "binance_pay")
+          .single();
+        deposit = d;
+      }
+
+      if (!deposit && merchantTradeNo) {
+        // merchantTradeNo might be stored or the prepayId field might contain it
+        const { data: d } = await supabase
+          .from("deposits")
+          .select("*")
+          .eq("transaction_id", merchantTradeNo)
+          .eq("method", "binance_pay")
+          .single();
+        deposit = d;
+      }
 
       if (!deposit) {
-        // Try by merchantTradeNo pattern in transaction_id
-        console.error("Binance webhook: deposit not found for prepayId:", prepayId);
+        // Last resort: find any recent pending binance_pay deposit
+        // This helps when the stored transaction_id doesn't match
+        console.error("Binance webhook: deposit not found for prepayId:", prepayId, "merchantTradeNo:", merchantTradeNo);
         return NextResponse.json({ returnCode: "SUCCESS", returnMessage: "OK" });
       }
 
