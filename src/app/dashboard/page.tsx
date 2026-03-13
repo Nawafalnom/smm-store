@@ -332,7 +332,7 @@ export default function DashboardPage() {
                       className="admin-input" disabled={!selectedCatId}>
                       <option value="">— اختر خدمة ({filteredServices.length}) —</option>
                       {filteredServices.map((s) => (
-                        <option key={s.id} value={s.id}>{s.api_service_id} - {s.name}</option>
+                        <option key={s.id} value={s.id}>{s.api_service_id} - {s.name} - ${s.price_per_1000} لكل 1000</option>
                       ))}
                     </select>
                   </div>
@@ -341,10 +341,13 @@ export default function DashboardPage() {
                   {selectedService && (
                     <div className="rounded-xl p-4 mb-4 text-sm" style={{ background: "#e4e1ed10", border: "1px solid #2a2a40" }}>
                       <div className="font-bold text-white mb-2">الوصف</div>
-                      {selectedService.description && <p className="text-gray-400 mb-2">{selectedService.description}</p>}
+                      {selectedService.description && selectedService.description.trim().length > 0 && (
+                        <div className="text-gray-400 mb-3 text-xs leading-relaxed whitespace-pre-line">{selectedService.description}</div>
+                      )}
                       <div className="flex flex-wrap gap-2 text-xs">
                         <span className="text-gray-500">⚡ {selectedService.speed}</span>
-                        {selectedService.guarantee_days > 0 && <span className="text-gray-500">🔄 ضمان {selectedService.guarantee_days} يوم</span>}
+                        {selectedService.guarantee_days > 0 && selectedService.guarantee_days < 999 && <span className="text-gray-500">♻️ إعادة التعبئة: {selectedService.guarantee_days} يوم ضمان</span>}
+                        {selectedService.guarantee_days >= 999 && <span className="text-gray-500">♻️ ضمان مدى الحياة</span>}
                         {selectedService.can_refill && <span className="px-2 py-0.5 rounded bg-green-500/10 text-green-400">♻️ تعويض</span>}
                         {selectedService.can_cancel && <span className="px-2 py-0.5 rounded bg-red-500/10 text-red-400">❌ إلغاء</span>}
                       </div>

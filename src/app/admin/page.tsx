@@ -13,6 +13,7 @@ const P = STORE.color;
 interface ApiService {
   service: number; name: string; type: string; category: string;
   rate: string; min: string; max: string; refill: boolean; cancel: boolean;
+  desc?: string; description?: string; dripfeed?: boolean; average_time?: string;
   selected?: boolean;
 }
 interface ApiCategory { name: string; services: ApiService[]; selected: boolean; expanded: boolean; }
@@ -248,6 +249,22 @@ export default function AdminPage() {
         const translatedName = autoTranslate ? translateToArabic(s.name) : s.name;
         const apiPrice = Number(s.rate);
         const sellPrice = Math.round((apiPrice + priceFixedAdd + (apiPrice * pricePctAdd / 100)) * 10000) / 10000;
+
+        // Use provider's real description if available
+        const providerDesc = (s.desc || s.description || "").trim();
+        let finalDesc = "";
+        if (providerDesc && providerDesc.length > 2) {
+          // Decode HTML entities in description too
+          finalDesc = providerDesc
+            .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&apos;/g, "'")
+            .replace(/<[^>]*>/g, ""); // Strip HTML tags
+        }
+
+        // Extract guarantee days from name
+        const guarMatch = s.name.match(/(\d+)\s*days?\s*(?:refill|guarantee|warranty)/i);
+        const guarDays = guarMatch ? Number(guarMatch[1]) : (s.name.match(/lifetime/i) ? 999 : 0);
+
         const data: any = {
           api_service_id: s.service, provider_id: syncProvider.id,
           name: translatedName, name_en: s.name,
@@ -255,8 +272,8 @@ export default function AdminPage() {
           platform: s.catName,
           price_per_1000: sellPrice, min_quantity: Number(s.min), max_quantity: Number(s.max),
           can_refill: s.refill || false, can_cancel: s.cancel || false,
-          speed: s.type || "Default", guarantee_days: 0,
-          description: `${s.type} | API: $${apiPrice}/1K → بيع: $${sellPrice}/1K${s.refill ? " | ♻️" : ""}${s.cancel ? " | ❌" : ""}`,
+          speed: s.type || "Default", guarantee_days: guarDays,
+          description: finalDesc,
           is_active: true, sort_order: s.service,
         };
         if (existing) { await supabase.from("services").update(data).eq("id", existing.id); updated++; }

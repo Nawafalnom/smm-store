@@ -47,6 +47,7 @@ function cleanServices(data: any): any {
     if (cleaned.name) cleaned.name = decodeHtmlEntities(cleaned.name);
     if (cleaned.category) cleaned.category = decodeHtmlEntities(cleaned.category);
     if (cleaned.description) cleaned.description = decodeHtmlEntities(cleaned.description);
+    if (cleaned.desc) cleaned.desc = decodeHtmlEntities(cleaned.desc);
     return cleaned;
   });
 }
