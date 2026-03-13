@@ -68,6 +68,8 @@ export default function AdminPage() {
   const [showTicketReply, setShowTicketReply] = useState<Ticket | null>(null);
   const [ticketReply, setTicketReply] = useState("");
   const [autoTranslate, setAutoTranslate] = useState(true);
+  const [priceFixedAdd, setPriceFixedAdd] = useState(0);
+  const [pricePctAdd, setPricePctAdd] = useState(0);
 
   // ═══════════════════════════════════════
   //  AUTH — httpOnly cookie server session
@@ -190,6 +192,7 @@ export default function AdminPage() {
   // ═══════════════════════════════════════
   async function openSyncModal(prov: Provider) {
     setSyncProvider(prov); setSyncLoading(true); setShowSyncModal(true); setSyncSearch("");
+    setPriceFixedAdd(0); setPricePctAdd(0);
     try {
       const apiServices = await getProviderServices(prov.id!);
       if (!Array.isArray(apiServices)) { toast.error("فشل جلب الخدمات"); setShowSyncModal(false); return; }
@@ -243,22 +246,25 @@ export default function AdminPage() {
       for (const s of sel) {
         const { data: existing } = await supabase.from("services").select("id").eq("api_service_id", s.service).eq("provider_id", syncProvider.id).single();
         const translatedName = autoTranslate ? translateToArabic(s.name) : s.name;
+        const apiPrice = Number(s.rate);
+        const sellPrice = Math.round((apiPrice + priceFixedAdd + (apiPrice * pricePctAdd / 100)) * 10000) / 10000;
         const data: any = {
           api_service_id: s.service, provider_id: syncProvider.id,
           name: translatedName, name_en: s.name,
           category_id: catIdMap[s.catName] || "",
           platform: s.catName,
-          price_per_1000: Number(s.rate), min_quantity: Number(s.min), max_quantity: Number(s.max),
+          price_per_1000: sellPrice, min_quantity: Number(s.min), max_quantity: Number(s.max),
           can_refill: s.refill || false, can_cancel: s.cancel || false,
           speed: s.type || "Default", guarantee_days: 0,
-          description: `${s.type} | $${s.rate}/1K${s.refill ? " | ♻️" : ""}${s.cancel ? " | ❌" : ""}`,
+          description: `${s.type} | API: $${apiPrice}/1K → بيع: $${sellPrice}/1K${s.refill ? " | ♻️" : ""}${s.cancel ? " | ❌" : ""}`,
           is_active: true, sort_order: s.service,
         };
         if (existing) { await supabase.from("services").update(data).eq("id", existing.id); updated++; }
         else { await supabase.from("services").insert(data); added++; }
       }
-      const msg = autoTranslate ? `تم! ${added} جديد، ${updated} محدّث (مع ترجمة عربية ✓)` : `تم! ${added} جديد، ${updated} محدّث`;
-      toast.success(msg); setShowSyncModal(false); fetchAll();
+      const pricingMsg = (priceFixedAdd > 0 || pricePctAdd > 0) ? ` | ربح: +$${priceFixedAdd} +${pricePctAdd}%` : "";
+      const translateMsg = autoTranslate ? " (ترجمة ✓)" : "";
+      toast.success(`تم! ${added} جديد، ${updated} محدّث${translateMsg}${pricingMsg}`); setShowSyncModal(false); fetchAll();
     } catch (err) { console.error(err); toast.error("خطأ"); } finally { setSyncing(false); }
   }
 
@@ -812,6 +818,32 @@ export default function AdminPage() {
                 <button onClick={() => selectAllSync(false)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/15 text-red-400">❌ إلغاء الكل</button>
               </div>
             </div>
+
+            {/* Pricing Adjustments */}
+            <div className="px-4 py-3 border-b border-white/5 shrink-0" style={{ background: "#0d0d15" }}>
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-xs font-bold text-gray-400">💰 نسبة الربح:</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-gray-500">ثابت $</span>
+                  <input type="number" step="0.01" min="0" value={priceFixedAdd || ""} onChange={e => setPriceFixedAdd(Number(e.target.value) || 0)}
+                    placeholder="0.00" className="w-20 px-2 py-1 rounded-lg text-xs text-center bg-dark-700 border border-white/10 text-white" dir="ltr" />
+                </div>
+                <span className="text-gray-600 text-sm">+</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-gray-500">نسبة %</span>
+                  <input type="number" step="1" min="0" value={pricePctAdd || ""} onChange={e => setPricePctAdd(Number(e.target.value) || 0)}
+                    placeholder="0" className="w-16 px-2 py-1 rounded-lg text-xs text-center bg-dark-700 border border-white/10 text-white" dir="ltr" />
+                </div>
+                {(priceFixedAdd > 0 || pricePctAdd > 0) && (
+                  <div className="flex items-center gap-2 mr-auto">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/15 text-green-400">
+                      مثال: ${`$1.00`} → ${`$${(1 + priceFixedAdd + (1 * pricePctAdd / 100)).toFixed(2)}`}
+                    </span>
+                    <button onClick={() => { setPriceFixedAdd(0); setPricePctAdd(0); }} className="text-[10px] text-gray-500 hover:text-red-400">↻ صفّر</button>
+                  </div>
+                )}
+              </div>
+            </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
               {syncLoading ? <div className="text-center py-12 text-gray-500">جاري جلب الخدمات...</div> :
                 filteredSyncCats.length === 0 ? <div className="text-center py-12 text-gray-500">لا توجد نتائج</div> :
@@ -834,6 +866,7 @@ export default function AdminPage() {
                                 <span className="text-gray-400 font-mono text-xs w-12">{svc.service}</span>
                                 <span className="text-gray-300 flex-1 truncate">{svc.name}</span>
                                 <span className="text-xs font-bold" style={{ color: A }}>${svc.rate}/1K</span>
+                                {(priceFixedAdd > 0 || pricePctAdd > 0) && <span className="text-[10px] text-green-400">${(Number(svc.rate) + priceFixedAdd + (Number(svc.rate) * pricePctAdd / 100)).toFixed(3)}</span>}
                                 <span className="text-gray-600 text-xs">{svc.min}-{svc.max}</span>
                                 {svc.refill && <span className="text-xs text-green-400">♻️</span>}
                                 {svc.cancel && <span className="text-xs text-red-400">❌</span>}
