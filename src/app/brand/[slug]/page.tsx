@@ -61,7 +61,7 @@ export default function BrandPage() {
     );
   }
 
-  const platforms = ["الكل", ...new Set(packages.map((p) => p.platform))];
+  const platforms = ["الكل", ...Array.from(new Set(packages.map((p) => p.platform)))];
   const filtered = selectedPlatform === "الكل"
     ? packages
     : packages.filter((p) => p.platform === selectedPlatform);
