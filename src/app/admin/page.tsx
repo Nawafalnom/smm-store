@@ -194,6 +194,35 @@ export default function AdminPage() {
     } catch { toast.error("خطأ"); } finally { setSyncing(false); }
   }
 
+  // ═══ Delete All ═══
+  async function deleteAllCategories() {
+    if (!confirm("⚠️ هل أنت متأكد من حذف جميع الفئات؟ هذا سيحذف أيضاً ربط الخدمات بالفئات.")) return;
+    if (!confirm("تأكيد نهائي: حذف " + categories.length + " فئة؟")) return;
+    try {
+      await supabase.from("categories").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      toast.success("تم حذف جميع الفئات"); fetchAll();
+    } catch { toast.error("خطأ"); }
+  }
+
+  async function deleteAllServices() {
+    if (!confirm("⚠️ هل أنت متأكد من حذف جميع الخدمات؟")) return;
+    if (!confirm("تأكيد نهائي: حذف " + services.length + " خدمة؟")) return;
+    try {
+      await supabase.from("services").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      toast.success("تم حذف جميع الخدمات"); fetchAll();
+    } catch { toast.error("خطأ"); }
+  }
+
+  async function deleteAllCategoriesAndServices() {
+    if (!confirm("⚠️⚠️ هل أنت متأكد من حذف جميع الفئات والخدمات معاً؟ هذا لا يمكن التراجع عنه!")) return;
+    if (!confirm("تأكيد نهائي: حذف " + services.length + " خدمة و " + categories.length + " فئة؟")) return;
+    try {
+      await supabase.from("services").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      await supabase.from("categories").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      toast.success("تم حذف جميع الفئات والخدمات"); fetchAll();
+    } catch { toast.error("خطأ"); }
+  }
+
   async function saveProv() { try { if (editingProv?.id) await supabase.from("providers").update(provForm).eq("id", editingProv.id); else await supabase.from("providers").insert(provForm); toast.success("تم"); setShowProvForm(false); setEditingProv(null); setProvForm({ name: "", api_url: "", api_key: "", is_active: true, sort_order: 0 }); fetchAll(); } catch { toast.error("خطأ"); } }
   async function deleteProv(id: string) { if (!confirm("حذف؟")) return; await supabase.from("providers").delete().eq("id", id); fetchAll(); }
   async function saveCat() { try { if (editingCat?.id) await supabase.from("categories").update(catForm).eq("id", editingCat.id); else await supabase.from("categories").insert(catForm); toast.success("تم"); setShowCatForm(false); setEditingCat(null); setCatForm({ name: "", sort_order: 0, is_active: true }); fetchAll(); } catch { toast.error("خطأ"); } }
@@ -283,7 +312,13 @@ export default function AdminPage() {
         {!loading && tab === "categories" && (<>
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold text-gray-300">الفئات ({categories.length})</h2>
-            <button onClick={() => { setEditingCat(null); setCatForm({ name: "", sort_order: 0, is_active: true }); setShowCatForm(true); }} className="px-4 py-2 rounded-xl text-sm font-bold text-white" style={{ background: A }}>+ فئة</button>
+            <div className="flex gap-2">
+              {categories.length > 0 && (<>
+                <button onClick={deleteAllCategoriesAndServices} className="px-4 py-2 rounded-xl text-sm font-bold bg-red-600/20 text-red-400 hover:bg-red-600/30 border border-red-600/30 transition">🗑️ حذف الكل (فئات + خدمات)</button>
+                <button onClick={deleteAllCategories} className="px-4 py-2 rounded-xl text-sm font-bold bg-red-500/15 text-red-400 hover:bg-red-500/25 transition">حذف جميع الفئات</button>
+              </>)}
+              <button onClick={() => { setEditingCat(null); setCatForm({ name: "", sort_order: 0, is_active: true }); setShowCatForm(true); }} className="px-4 py-2 rounded-xl text-sm font-bold text-white" style={{ background: A }}>+ فئة</button>
+            </div>
           </div>
           <div className="space-y-2">{categories.map((c) => (
             <div key={c.id} className="card-dark p-4 flex items-center justify-between">
@@ -300,7 +335,12 @@ export default function AdminPage() {
         {!loading && tab === "services" && (<>
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold text-gray-300">الخدمات ({services.length})</h2>
-            <button onClick={() => { setEditingSvc(null); setSvcForm({ category_id: "", provider_id: "", name: "", platform: "", api_service_id: 0, price_per_1000: 0, min_quantity: 10, max_quantity: 100000, speed: "Default", guarantee_days: 0, description: "", can_refill: false, can_cancel: false, is_active: true, sort_order: 0 }); setShowSvcForm(true); }} className="px-4 py-2 rounded-xl text-sm font-bold text-white" style={{ background: A }}>+ خدمة</button>
+            <div className="flex gap-2">
+              {services.length > 0 && (
+                <button onClick={deleteAllServices} className="px-4 py-2 rounded-xl text-sm font-bold bg-red-500/15 text-red-400 hover:bg-red-500/25 transition">🗑️ حذف جميع الخدمات</button>
+              )}
+              <button onClick={() => { setEditingSvc(null); setSvcForm({ category_id: "", provider_id: "", name: "", platform: "", api_service_id: 0, price_per_1000: 0, min_quantity: 10, max_quantity: 100000, speed: "Default", guarantee_days: 0, description: "", can_refill: false, can_cancel: false, is_active: true, sort_order: 0 }); setShowSvcForm(true); }} className="px-4 py-2 rounded-xl text-sm font-bold text-white" style={{ background: A }}>+ خدمة</button>
+            </div>
           </div>
           <div className="overflow-x-auto"><table className="w-full text-xs">
             <thead><tr className="border-b border-white/5 text-gray-500">
