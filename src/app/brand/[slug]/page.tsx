@@ -11,7 +11,7 @@ export default function BrandPage() {
   const params = useParams();
   const router = useRouter();
   const slug = params.slug as string;
-  const brand = getBrand(slug);
+  const brand = getBrand(slug)!;
 
   const [packages, setPackages] = useState<Package[]>([]);
   const [loading, setLoading] = useState(true);
