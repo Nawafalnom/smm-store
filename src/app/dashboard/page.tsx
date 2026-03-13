@@ -64,6 +64,7 @@ export default function DashboardPage() {
   // ── New Order State ──
   const [activePlatform, setActivePlatform] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
   const [selectedCatId, setSelectedCatId] = useState("");
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [orderLink, setOrderLink] = useState("");
@@ -112,6 +113,17 @@ export default function DashboardPage() {
     }
     return list;
   }, [services, selectedCatId, searchQuery]);
+
+  // ── Search dropdown results ──
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim() || searchQuery.length < 2) return [];
+    const q = searchQuery.toLowerCase();
+    return services.filter(s => 
+      s.name.toLowerCase().includes(q) || 
+      String(s.api_service_id).includes(q) ||
+      (s as any).category?.name?.toLowerCase().includes(q)
+    ).slice(0, 30);
+  }, [services, searchQuery]);
 
   const orderPrice = selectedService && orderQuantity ? (selectedService.price_per_1000 / 1000) * Number(orderQuantity) : 0;
 
@@ -233,12 +245,54 @@ export default function DashboardPage() {
               <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
                 {/* ── Order Form (3 cols) ── */}
                 <div className="lg:col-span-3 card-dark p-5">
-                  {/* Search */}
-                  <div className="mb-4 relative">
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 text-sm">🔍</span>
-                    <input type="search" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setSelectedCatId(""); setSelectedService(null); }}
+                  {/* Search with dropdown */}
+                  <div className="mb-4 relative z-40">
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 text-sm z-10">🔍</span>
+                    <input type="search" value={searchQuery}
+                      onChange={(e) => { setSearchQuery(e.target.value); if (!e.target.value.trim()) { setSearchFocused(false); } else { setSearchFocused(true); } }}
+                      onFocus={() => { if (searchQuery.trim().length >= 2) setSearchFocused(true); }}
                       placeholder="بحث عن خدمة أو فئة..." className="admin-input !pr-10" />
+                    
+                    {/* Search Dropdown */}
+                    {searchFocused && searchResults.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 mt-1 z-50 rounded-xl overflow-hidden max-h-80 overflow-y-auto"
+                        style={{ background: "#1a1a28", border: "1px solid #2a2a40", boxShadow: "0 12px 40px rgba(0,0,0,0.5)" }}>
+                        <div className="px-3 py-2 text-xs text-gray-500 border-b border-white/5 sticky top-0" style={{ background: "#1a1a28" }}>
+                          {searchResults.length} نتيجة
+                        </div>
+                        {searchResults.map((svc) => (
+                          <button key={svc.id}
+                            className="w-full text-right px-3 py-2.5 hover:bg-white/[0.05] transition flex items-start gap-3 border-b border-white/[0.03]"
+                            onClick={() => {
+                              setSelectedCatId(svc.category_id);
+                              setSelectedService(svc);
+                              setSearchQuery("");
+                              setSearchFocused(false);
+                              setOrderQuantity("");
+                            }}>
+                            <span className="text-gray-600 font-mono text-xs mt-0.5 shrink-0">{svc.api_service_id}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-gray-200 text-sm truncate">{svc.name}</div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-xs text-gray-500">{(svc as any).category?.name}</span>
+                                <span className="text-xs font-bold" style={{ color: A }}>${svc.price_per_1000}/1K</span>
+                                {svc.can_refill && <span className="text-xs text-green-500">♻️</span>}
+                                {svc.can_cancel && <span className="text-xs text-red-500">❌</span>}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {searchFocused && searchQuery.trim().length >= 2 && searchResults.length === 0 && (
+                      <div className="absolute top-full left-0 right-0 mt-1 z-50 rounded-xl px-4 py-6 text-center text-gray-500 text-sm"
+                        style={{ background: "#1a1a28", border: "1px solid #2a2a40" }}>
+                        لا توجد نتائج لـ &quot;{searchQuery}&quot;
+                      </div>
+                    )}
                   </div>
+                  {/* Click outside to close search */}
+                  {searchFocused && <div className="fixed inset-0 z-30" onClick={() => setSearchFocused(false)} />}
 
                   {/* Category Dropdown */}
                   <div className="mb-4">
