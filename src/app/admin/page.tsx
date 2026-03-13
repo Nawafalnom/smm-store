@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase, STORE, PLATFORMS, ORDER_STATUSES, type Category, type Service, type Order, type Profile, type Provider } from "@/lib/supabase";
 import { getProviderServices, getProviderBalance, getMultiOrderStatus } from "@/lib/smm-api";
+import { translateToArabic, translateCategory } from "@/lib/translate";
 import toast from "react-hot-toast";
 import Link from "next/link";
 
@@ -66,6 +67,7 @@ export default function AdminPage() {
   const [svcForm, setSvcForm] = useState<Partial<Service>>({});
   const [showTicketReply, setShowTicketReply] = useState<Ticket | null>(null);
   const [ticketReply, setTicketReply] = useState("");
+  const [autoTranslate, setAutoTranslate] = useState(true);
 
   // ═══════════════════════════════════════
   //  AUTH — httpOnly cookie server session
@@ -211,16 +213,52 @@ export default function AdminPage() {
       const sel: (ApiService & { catName: string })[] = [];
       for (const c of syncCategories) for (const s of c.services) if (s.selected) sel.push({ ...s, catName: c.name });
       const catNames = Array.from(new Set(sel.map(s => s.catName)));
-      for (const name of catNames) { const { data: ex } = await supabase.from("categories").select("id").eq("name", name).single(); if (!ex) await supabase.from("categories").insert({ name, sort_order: 0, is_active: true }); }
+
+      // Ensure categories exist (with translation if enabled)
+      for (const origName of catNames) {
+        // Check if category already exists by name_en or name
+        const { data: byEn } = await supabase.from("categories").select("id").eq("name_en", origName).single();
+        if (byEn) continue;
+        const { data: byName } = await supabase.from("categories").select("id").eq("name", origName).single();
+        if (byName) { await supabase.from("categories").update({ name_en: origName }).eq("id", byName.id); continue; }
+
+        const translatedName = autoTranslate ? translateCategory(origName) : origName;
+        // Also check if translated name already exists
+        if (autoTranslate && translatedName !== origName) {
+          const { data: byTr } = await supabase.from("categories").select("id").eq("name", translatedName).single();
+          if (byTr) { await supabase.from("categories").update({ name_en: origName }).eq("id", byTr.id); continue; }
+        }
+        await supabase.from("categories").insert({ name: translatedName, name_en: origName, sort_order: 0, is_active: true });
+      }
+
+      // Build category ID map (by name_en for accurate matching)
       const { data: allCats } = await supabase.from("categories").select("*");
-      const catIdMap: Record<string, string> = {}; (allCats || []).forEach((c: any) => { catIdMap[c.name] = c.id; });
+      const catIdMap: Record<string, string> = {};
+      (allCats || []).forEach((c: any) => {
+        if (c.name_en) catIdMap[c.name_en] = c.id;
+        catIdMap[c.name] = c.id;
+      });
+
       let added = 0, updated = 0;
       for (const s of sel) {
         const { data: existing } = await supabase.from("services").select("id").eq("api_service_id", s.service).eq("provider_id", syncProvider.id).single();
-        const data = { api_service_id: s.service, provider_id: syncProvider.id, name: s.name, category_id: catIdMap[s.catName] || "", platform: s.catName, price_per_1000: Number(s.rate), min_quantity: Number(s.min), max_quantity: Number(s.max), can_refill: s.refill || false, can_cancel: s.cancel || false, speed: s.type || "Default", guarantee_days: 0, description: `${s.type} | $${s.rate}/1K${s.refill ? " | ♻️" : ""}${s.cancel ? " | ❌" : ""}`, is_active: true, sort_order: s.service };
-        if (existing) { await supabase.from("services").update(data).eq("id", existing.id); updated++; } else { await supabase.from("services").insert(data); added++; }
+        const translatedName = autoTranslate ? translateToArabic(s.name) : s.name;
+        const data: any = {
+          api_service_id: s.service, provider_id: syncProvider.id,
+          name: translatedName, name_en: s.name,
+          category_id: catIdMap[s.catName] || "",
+          platform: s.catName,
+          price_per_1000: Number(s.rate), min_quantity: Number(s.min), max_quantity: Number(s.max),
+          can_refill: s.refill || false, can_cancel: s.cancel || false,
+          speed: s.type || "Default", guarantee_days: 0,
+          description: `${s.type} | $${s.rate}/1K${s.refill ? " | ♻️" : ""}${s.cancel ? " | ❌" : ""}`,
+          is_active: true, sort_order: s.service,
+        };
+        if (existing) { await supabase.from("services").update(data).eq("id", existing.id); updated++; }
+        else { await supabase.from("services").insert(data); added++; }
       }
-      toast.success(`تم! ${added} جديد، ${updated} محدّث`); setShowSyncModal(false); fetchAll();
+      const msg = autoTranslate ? `تم! ${added} جديد، ${updated} محدّث (مع ترجمة عربية ✓)` : `تم! ${added} جديد، ${updated} محدّث`;
+      toast.success(msg); setShowSyncModal(false); fetchAll();
     } catch (err) { console.error(err); toast.error("خطأ"); } finally { setSyncing(false); }
   }
 
@@ -252,6 +290,40 @@ export default function AdminPage() {
   async function deleteCat(id: string) { if (!confirm("حذف؟")) return; await supabase.from("categories").delete().eq("id", id); fetchAll(); }
   async function saveSvc() { try { if (editingSvc?.id) await supabase.from("services").update(svcForm).eq("id", editingSvc.id); else await supabase.from("services").insert(svcForm); toast.success("تم"); setShowSvcForm(false); setEditingSvc(null); fetchAll(); } catch { toast.error("خطأ"); } }
   async function deleteSvc(id: string) { if (!confirm("حذف؟")) return; await supabase.from("services").delete().eq("id", id); fetchAll(); }
+
+  // Translate all existing English services/categories to Arabic
+  async function translateAllExisting() {
+    if (!confirm("هل تريد ترجمة جميع الخدمات والفئات الإنجليزية للعربي؟")) return;
+    setSyncing(true);
+    let translated = 0;
+    try {
+      // Translate categories
+      for (const cat of categories) {
+        const isEng = !/[\u0600-\u06FF]/.test(cat.name);
+        if (isEng) {
+          const arName = translateCategory(cat.name);
+          await supabase.from("categories").update({ name: arName, name_en: cat.name }).eq("id", cat.id);
+          translated++;
+        } else if (!(cat as any).name_en) {
+          // Already Arabic but no English backup — skip
+        }
+      }
+      // Translate services
+      for (const svc of services) {
+        const isEng = !/[\u0600-\u06FF]/.test(svc.name);
+        if (isEng) {
+          const arName = translateToArabic(svc.name);
+          await supabase.from("services").update({ name: arName, name_en: svc.name }).eq("id", svc.id);
+          translated++;
+        } else if (!(svc as any).name_en) {
+          // Already Arabic but no English backup — skip
+        }
+      }
+      toast.success(`تم ترجمة ${translated} عنصر ✓`);
+      fetchAll();
+    } catch (err) { console.error(err); toast.error("خطأ في الترجمة"); }
+    finally { setSyncing(false); }
+  }
   async function updateOrderStatus(id: string, status: string) { await supabase.from("orders").update({ status }).eq("id", id); fetchAll(); }
   async function updateBalance(uid: string) { const v = prompt("الرصيد الجديد:"); if (!v) return; await supabase.from("profiles").update({ balance: Number(v) }).eq("id", uid); toast.success("تم"); fetchAll(); }
 
@@ -615,6 +687,7 @@ export default function AdminPage() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold text-gray-300">الخدمات ({services.length})</h2>
             <div className="flex gap-2">
+              {services.length > 0 && <button onClick={translateAllExisting} disabled={syncing} className="px-3 py-2 rounded-xl text-xs font-bold bg-green-500/15 text-green-400 hover:bg-green-500/25 disabled:opacity-50">🌐 ترجمة الكل للعربي</button>}
               {services.length > 0 && <button onClick={deleteAllServices} className="px-3 py-2 rounded-xl text-xs font-bold bg-red-500/15 text-red-400">🗑️ حذف الكل</button>}
               <button onClick={() => { setEditingSvc(null); setSvcForm({ category_id: "", provider_id: "", name: "", platform: "", api_service_id: 0, price_per_1000: 0, min_quantity: 10, max_quantity: 100000, speed: "Default", guarantee_days: 0, description: "", can_refill: false, can_cancel: false, is_active: true, sort_order: 0 }); setShowSvcForm(true); }} className="px-4 py-2 rounded-xl text-sm font-bold text-white" style={{ background: A }}>+ خدمة</button>
             </div>
@@ -624,7 +697,10 @@ export default function AdminPage() {
             <tbody>{services.map(s => (
               <tr key={s.id} className="border-b border-white/5 hover:bg-white/[0.02]">
                 <td className="py-2 px-2 text-gray-500 font-mono">{s.api_service_id}</td>
-                <td className="py-2 px-2 text-gray-300 max-w-[250px] truncate">{s.name}</td>
+                <td className="py-2 px-2 text-gray-300 max-w-[300px]">
+                  <div className="truncate">{s.name}</div>
+                  {(s as any).name_en && (s as any).name_en !== s.name && <div className="text-[10px] text-gray-600 truncate" dir="ltr">{(s as any).name_en}</div>}
+                </td>
                 <td className="py-2 px-2 text-purple-400">{(s as any).provider?.name || "-"}</td>
                 <td className="py-2 px-2 font-bold" style={{ color: A }}>${s.price_per_1000}</td>
                 <td className="py-2 px-2 flex gap-1">
@@ -770,7 +846,17 @@ export default function AdminPage() {
                   })}
             </div>
             <div className="p-4 border-t border-white/5 shrink-0 flex items-center justify-between">
-              <span className="text-gray-400 text-sm">تم اختيار <strong className="text-white">{selectedCount}</strong> خدمة</span>
+              <div className="flex items-center gap-4">
+                <span className="text-gray-400 text-sm">تم اختيار <strong className="text-white">{selectedCount}</strong> خدمة</span>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <div className="relative">
+                    <input type="checkbox" checked={autoTranslate} onChange={e => setAutoTranslate(e.target.checked)} className="sr-only peer" />
+                    <div className="w-9 h-5 rounded-full transition-colors peer-checked:bg-green-500 bg-gray-600" />
+                    <div className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4" />
+                  </div>
+                  <span className="text-xs font-bold" style={{ color: autoTranslate ? "#10b981" : "#666" }}>🌐 ترجمة تلقائية للعربي</span>
+                </label>
+              </div>
               <div className="flex gap-3">
                 <button onClick={() => setShowSyncModal(false)} disabled={syncing} className="px-5 py-2.5 rounded-xl text-sm font-bold text-gray-400 border border-white/10 hover:bg-white/5 disabled:opacity-50">إلغاء</button>
                 <button onClick={importSelected} disabled={syncing || selectedCount === 0} className="px-6 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50" style={{ background: selectedCount > 0 ? A : "#555" }}>{syncing ? "جاري الاستيراد..." : `استيراد ${selectedCount} خدمة`}</button>
