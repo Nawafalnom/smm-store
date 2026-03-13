@@ -56,25 +56,19 @@ export default function AdminPage() {
 
   // ── Check saved session on mount ──
   useEffect(() => {
-    const saved = localStorage.getItem("admin_session");
-    if (saved) {
-      try {
-        const { password: savedPw, token } = JSON.parse(saved);
-        if (savedPw && token) {
-          // Verify session is still valid
-          fetch("/api/admin", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "verifyToken", password: savedPw }),
-          }).then(r => r.json()).then(res => {
-            if (res.success) { setPassword(savedPw); setAuthed(true); }
-            else { localStorage.removeItem("admin_session"); }
-            setAuthLoading(false);
-          }).catch(() => { setAuthLoading(false); });
-          return;
+    try {
+      const saved = sessionStorage.getItem("admin_session") || localStorage.getItem("admin_session");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.authed && parsed.token && parsed.expiry > Date.now()) {
+          setPassword(parsed.pw || "");
+          setAuthed(true);
+        } else {
+          localStorage.removeItem("admin_session");
+          sessionStorage.removeItem("admin_session");
         }
-      } catch {}
-    }
+      }
+    } catch {}
     setAuthLoading(false);
   }, []);
 
@@ -95,7 +89,9 @@ export default function AdminPage() {
       }
 
       // No 2FA - login directly
-      localStorage.setItem("admin_session", JSON.stringify({ password, token: res.token }));
+      const session = { authed: true, token: res.token, pw: password, expiry: Date.now() + 7 * 24 * 60 * 60 * 1000 };
+      localStorage.setItem("admin_session", JSON.stringify(session));
+      sessionStorage.setItem("admin_session", JSON.stringify(session));
       setAuthed(true);
       toast.success("تم تسجيل الدخول");
     } catch { toast.error("خطأ في الاتصال"); }
@@ -112,7 +108,9 @@ export default function AdminPage() {
 
       if (!res.success) { toast.error(res.error || "الكود غير صحيح"); return; }
 
-      localStorage.setItem("admin_session", JSON.stringify({ password, token: res.token }));
+      const session = { authed: true, token: res.token, pw: password, expiry: Date.now() + 7 * 24 * 60 * 60 * 1000 };
+      localStorage.setItem("admin_session", JSON.stringify(session));
+      sessionStorage.setItem("admin_session", JSON.stringify(session));
       setAuthed(true);
       toast.success("تم تسجيل الدخول");
     } catch { toast.error("خطأ"); }
