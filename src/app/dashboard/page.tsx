@@ -253,7 +253,7 @@ export default function DashboardPage() {
   // Binance Pay — automatic (redirect to Binance checkout)
   async function handleBinancePay() {
     const amt = Number(depositAmount);
-    if (!amt || amt < 5) { toast.error("الحد الأدنى $5"); return; }
+    if (!amt || amt < 1) { toast.error("الحد الأدنى $1"); return; }
     setDepositSubmitting(true);
     try {
       const res = await fetch("/api/payments/binance/create", {

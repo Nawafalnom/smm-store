@@ -192,7 +192,7 @@ export const PAYMENT_METHODS = {
     nameEn: "Binance Pay",
     icon: "🔶",
     description: "دفع عبر Binance Pay — فوري وتلقائي ✓",
-    minAmount: 5,
+    minAmount: 1,
     qrCode: "https://www2.0zz0.com/2026/01/16/15/195538412.png",
     details: [
       { label: "Binance Pay ID", value: "1027009797" },
