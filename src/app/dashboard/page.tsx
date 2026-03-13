@@ -81,6 +81,21 @@ export default function DashboardPage() {
 
   useEffect(() => { checkAuth(); }, []);
 
+  // Handle Binance Pay return
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const depositStatus = params.get("deposit");
+    if (depositStatus === "success") {
+      toast.success("تم الدفع بنجاح! سيتم إضافة رصيدك خلال لحظات ✓");
+      setActiveView("deposits");
+      window.history.replaceState({}, "", "/dashboard");
+    } else if (depositStatus === "cancelled") {
+      toast("تم إلغاء عملية الدفع", { icon: "⚠️" });
+      window.history.replaceState({}, "", "/dashboard");
+    }
+  }, []);
+
   async function checkAuth() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { router.push("/auth"); return; }
@@ -170,7 +185,33 @@ export default function DashboardPage() {
   async function handleLogout() { await supabase.auth.signOut(); router.push("/auth"); }
 
   // ── Deposit Handler ──
-  async function handleDeposit() {
+  // Binance Pay — automatic (redirect to Binance checkout)
+  async function handleBinancePay() {
+    const amt = Number(depositAmount);
+    if (!amt || amt < 5) { toast.error("الحد الأدنى $5"); return; }
+    setDepositSubmitting(true);
+    try {
+      const res = await fetch("/api/payments/binance-create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: user.id, amount: amt }),
+      }).then(r => r.json());
+
+      if (res.success && res.checkoutUrl) {
+        toast.success("جاري التحويل لـ Binance Pay...");
+        window.open(res.checkoutUrl, "_blank");
+        // Switch to deposits view to track
+        setDepositAmount(""); setDepositMethod("");
+        setTimeout(() => { fetchDeposits(user.id); setActiveView("deposits"); }, 2000);
+      } else {
+        toast.error(res.error || "فشل إنشاء طلب الدفع");
+      }
+    } catch (err: any) { toast.error("خطأ في الاتصال"); }
+    finally { setDepositSubmitting(false); }
+  }
+
+  // Manual / USDT — manual (submit deposit, wait for admin)
+  async function handleManualDeposit() {
     if (!depositMethod) { toast.error("اختر طريقة الدفع"); return; }
     const amt = Number(depositAmount);
     const method = PAYMENT_METHODS[depositMethod as keyof typeof PAYMENT_METHODS];
@@ -747,20 +788,34 @@ export default function DashboardPage() {
                       </div>
                     </div>
 
-                    {/* Transaction ID */}
-                    <div>
-                      <h3 className="text-sm font-bold text-gray-400 mb-2">3️⃣ رقم العملية / Transaction Hash</h3>
-                      <input type="text" value={depositTxId} onChange={e => setDepositTxId(e.target.value)}
-                        placeholder={depositMethod === "manual" ? "رقم التحويل أو اسمك في الإيصال" : "الصق Transaction Hash هنا"}
-                        className="admin-input" dir="ltr" />
-                    </div>
+                    {/* Transaction ID — only for manual methods */}
+                    {depositMethod !== "binance_pay" && (
+                      <div>
+                        <h3 className="text-sm font-bold text-gray-400 mb-2">3️⃣ رقم العملية / Transaction Hash</h3>
+                        <input type="text" value={depositTxId} onChange={e => setDepositTxId(e.target.value)}
+                          placeholder={depositMethod === "manual" ? "رقم التحويل أو اسمك في الإيصال" : "الصق Transaction Hash هنا"}
+                          className="admin-input" dir="ltr" />
+                      </div>
+                    )}
 
-                    {/* Submit */}
-                    <button onClick={handleDeposit} disabled={depositSubmitting || !depositAmount || !depositTxId.trim()}
-                      className="w-full py-4 rounded-xl font-bold text-lg text-white transition-all hover:brightness-110 disabled:opacity-40"
-                      style={{ background: `linear-gradient(135deg, #10b981, #059669)` }}>
-                      {depositSubmitting ? "جاري الإرسال..." : `إرسال طلب شحن $${depositAmount || "0"}`}
-                    </button>
+                    {/* Submit — different for Binance Pay vs Manual */}
+                    {depositMethod === "binance_pay" ? (
+                      <button onClick={handleBinancePay} disabled={depositSubmitting || !depositAmount}
+                        className="w-full py-4 rounded-xl font-bold text-lg text-white transition-all hover:brightness-110 disabled:opacity-40 flex items-center justify-center gap-3"
+                        style={{ background: "linear-gradient(135deg, #F0B90B, #d4a50a)" }}>
+                        {depositSubmitting ? (
+                          <><span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> جاري التحويل...</>
+                        ) : (
+                          <><span className="text-2xl">🔶</span> ادفع ${depositAmount || "0"} عبر Binance Pay</>
+                        )}
+                      </button>
+                    ) : (
+                      <button onClick={handleManualDeposit} disabled={depositSubmitting || !depositAmount || !depositTxId.trim()}
+                        className="w-full py-4 rounded-xl font-bold text-lg text-white transition-all hover:brightness-110 disabled:opacity-40"
+                        style={{ background: "linear-gradient(135deg, #10b981, #059669)" }}>
+                        {depositSubmitting ? "جاري الإرسال..." : `إرسال طلب شحن $${depositAmount || "0"}`}
+                      </button>
+                    )}
 
                     {/* Warning */}
                     <div className="rounded-xl p-4 text-xs text-gray-500 leading-relaxed" style={{ background: "#f59e0b08", border: "1px solid #f59e0b15" }}>
