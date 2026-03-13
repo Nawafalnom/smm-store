@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase, STORE, ORDER_STATUSES, DEPOSIT_STATUSES, PAYMENT_METHODS, type Profile, type Order, type Category, type Service, type Deposit } from "@/lib/supabase";
@@ -52,13 +52,44 @@ function catMatchesPlatform(catName: string, platform: typeof PLATFORM_FILTERS[0
 
 export default function DashboardPage() {
   const router = useRouter();
+
+  const VALID_VIEWS = ["new_order", "orders", "services", "add_funds", "deposits", "settings"] as const;
+  type ViewType = typeof VALID_VIEWS[number];
+
+  // Read initial tab from URL
+  const getInitialTab = (): ViewType => {
+    if (typeof window === "undefined") return "new_order";
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab") || "new_order";
+    return VALID_VIEWS.includes(tab as any) ? tab as ViewType : "new_order";
+  };
+
+  const [activeView, setActiveViewState] = useState<ViewType>("new_order");
+  const [mounted, setMounted] = useState(false);
+
+  // Set initial tab from URL on mount
+  useEffect(() => { setActiveViewState(getInitialTab()); setMounted(true); }, []);
+
+  // Update URL when view changes
+  const setActiveView = useCallback((view: ViewType) => {
+    setActiveViewState(view);
+    const url = view === "new_order" ? "/dashboard" : `/dashboard?tab=${view}`;
+    window.history.pushState({}, "", url);
+  }, []);
+
+  // Handle browser back/forward
+  useEffect(() => {
+    const handlePop = () => setActiveViewState(getInitialTab());
+    window.addEventListener("popstate", handlePop);
+    return () => window.removeEventListener("popstate", handlePop);
+  }, []);
+
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeView, setActiveView] = useState<"new_order" | "orders" | "services" | "add_funds" | "deposits" | "settings">("new_order");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // ── New Order State ──
@@ -89,12 +120,11 @@ export default function DashboardPage() {
     if (depositStatus === "success") {
       toast.success("تم الدفع بنجاح! سيتم إضافة رصيدك خلال لحظات ✓");
       setActiveView("deposits");
-      window.history.replaceState({}, "", "/dashboard");
     } else if (depositStatus === "cancelled") {
       toast("تم إلغاء عملية الدفع", { icon: "⚠️" });
-      window.history.replaceState({}, "", "/dashboard");
+      setActiveView("deposits");
     }
-  }, []);
+  }, [setActiveView]);
 
   async function checkAuth() {
     const { data: { session } } = await supabase.auth.getSession();
