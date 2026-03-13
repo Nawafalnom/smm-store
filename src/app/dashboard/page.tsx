@@ -171,9 +171,15 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-dark-900 flex" style={{ "--brand-color": C, "--brand-rgb": STORE.colorRgb } as any}>
+    <div className="min-h-screen bg-dark-900 lg:flex" style={{ "--brand-color": C, "--brand-rgb": STORE.colorRgb } as any}>
+      {/* ═══ SIDEBAR OVERLAY (mobile) ═══ */}
+      {sidebarOpen && <div className="fixed inset-0 z-[60] bg-black/70 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+
       {/* ═══ SIDEBAR ═══ */}
-      <aside className={`fixed lg:sticky top-0 right-0 z-50 h-screen w-64 bg-dark-800 border-l border-white/5 flex flex-col transition-transform lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "translate-x-full lg:translate-x-0"}`}>
+      <aside className={`fixed lg:sticky top-0 right-0 z-[70] lg:z-auto h-screen w-[260px] bg-dark-800 border-l border-white/5 flex flex-col transition-transform duration-300 ease-out lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "translate-x-full lg:translate-x-0"}`}>
+        {/* Close button - mobile only */}
+        <button onClick={() => setSidebarOpen(false)} className="lg:hidden absolute top-3 left-3 w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-gray-400 hover:text-white">✕</button>
+
         <div className="p-4 border-b border-white/5">
           <Link href="/" className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center font-display font-900 text-sm" style={{ background: `${C}20`, border: `1px solid ${C}40`, color: C }}>G</div>
@@ -202,19 +208,35 @@ export default function DashboardPage() {
           <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-red-400/60 hover:text-red-400 hover:bg-red-400/5 transition">🚪 خروج</button>
         </div>
       </aside>
-      {sidebarOpen && <div className="fixed inset-0 z-40 bg-black/60 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
       {/* ═══ MAIN ═══ */}
-      <main className="flex-1 min-h-screen">
+      <main className="flex-1 min-w-0 min-h-screen">
         <header className="sticky top-0 z-30 backdrop-blur-xl bg-dark-900/80 border-b border-white/5">
-          <div className="flex items-center justify-between px-4 py-3">
-            <div className="flex items-center gap-3">
-              <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-gray-400 text-xl">☰</button>
-              <span className="text-gray-300 font-bold text-sm">أهلاً، {profile?.username}</span>
+          <div className="flex items-center justify-between px-3 sm:px-4 py-3">
+            <div className="flex items-center gap-2">
+              <button onClick={() => setSidebarOpen(true)} className="lg:hidden w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center text-gray-400 text-lg">☰</button>
+              <span className="text-gray-300 font-bold text-sm hidden sm:block">أهلاً، {profile?.username}</span>
+              <span className="text-gray-300 font-bold text-sm sm:hidden">{profile?.username}</span>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="px-3 py-1.5 rounded-lg text-sm font-bold" style={{ background: `${C}15`, color: C }}>${profile?.balance?.toFixed(2) || "0.00"}</div>
-              <button className="px-3 py-1.5 rounded-lg text-sm font-bold bg-green-500/15 text-green-400 hover:bg-green-500/25 transition" onClick={() => toast("تواصل مع الدعم لشحن الرصيد")}>+ إضافة رصيد</button>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-gray-500 hidden sm:inline">الرصيد</span>
+                <div className="px-2.5 py-1.5 rounded-lg text-sm font-bold" style={{ background: `${C}15`, color: C }}>${profile?.balance?.toFixed(2) || "0.00"}</div>
+              </div>
+              <button className="px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold bg-green-500/15 text-green-400 hover:bg-green-500/25 transition whitespace-nowrap" onClick={() => toast("تواصل مع الدعم لشحن الرصيد")}>+ <span className="hidden sm:inline">إضافة </span>رصيد</button>
+            </div>
+          </div>
+
+          {/* Stats bar - mobile friendly */}
+          <div className="flex items-center gap-3 px-3 sm:px-4 pb-2 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[10px] text-gray-500">الإنفاق</span>
+              <span className="text-xs font-bold" style={{ color: A }}>${profile?.total_spent?.toFixed(2) || "0.00"}</span>
+            </div>
+            <div className="w-px h-3 bg-white/10" />
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[10px] text-gray-500">الطلبات</span>
+              <span className="text-xs font-bold text-gray-300">{orders.length}</span>
             </div>
           </div>
         </header>
