@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+// Allow longer execution for cron job
+export const dynamic = "force-dynamic";
+export const maxDuration = 60; // 60 seconds max (Vercel Pro: 300)
+
 // Server-side Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,12 +30,15 @@ const STATUS_MAP: Record<string, string> = {
 async function callProvider(apiUrl: string, apiKey: string, params: Record<string, string>) {
   try {
     const body = new URLSearchParams({ key: apiKey, ...params });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     const res = await fetch(apiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: body.toString(),
-      signal: AbortSignal.timeout(15000), // 15s timeout
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
     return await res.json();
   } catch (err) {
     console.error(`Provider API error (${apiUrl}):`, err);
