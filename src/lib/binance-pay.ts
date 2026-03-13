@@ -1,7 +1,9 @@
-// Binance Pay API helper — Edge Runtime compatible (Web Crypto API)
+// Binance Pay API helper — supports Cloudflare Worker proxy to bypass geo-restrictions
 
 const API_KEY = process.env.BINANCE_PAY_API_KEY || "";
 const SECRET_KEY = process.env.BINANCE_PAY_SECRET_KEY || "";
+const PROXY_URL = process.env.BINANCE_PROXY_URL || ""; // Cloudflare Worker URL
+const PROXY_SECRET = process.env.BINANCE_PROXY_SECRET || "growence-binance-2024";
 const BASE_URL = "https://bpay.binanceapi.com";
 
 // Generate nonce
@@ -40,21 +42,44 @@ export async function verifyWebhookSignature(payload: string, signature: string)
   return expected === signature.toUpperCase();
 }
 
-// Make authenticated request to Binance Pay API
+// Make authenticated request to Binance Pay API (via proxy or direct)
 async function binanceRequest(endpoint: string, body: object): Promise<any> {
   const timestamp = Date.now();
   const nonceStr = nonce();
   const bodyStr = JSON.stringify(body);
   const signature = await sign(timestamp, nonceStr, bodyStr);
 
+  const binanceHeaders: Record<string, string> = {
+    "BinancePay-Timestamp": String(timestamp),
+    "BinancePay-Nonce": nonceStr,
+    "BinancePay-Certificate-SN": API_KEY,
+    "BinancePay-Signature": signature,
+  };
+
+  // Use Cloudflare Worker proxy if configured
+  if (PROXY_URL) {
+    console.log("Using Binance proxy:", PROXY_URL);
+    const res = await fetch(PROXY_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Proxy-Secret": PROXY_SECRET,
+      },
+      body: JSON.stringify({
+        endpoint,
+        payload: body,
+        headers: binanceHeaders,
+      }),
+    });
+    return res.json();
+  }
+
+  // Direct call (may fail due to geo-restrictions on cloud IPs)
   const res = await fetch(`${BASE_URL}${endpoint}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "BinancePay-Timestamp": String(timestamp),
-      "BinancePay-Nonce": nonceStr,
-      "BinancePay-Certificate-SN": API_KEY,
-      "BinancePay-Signature": signature,
+      ...binanceHeaders,
     },
     body: bodyStr,
   });
