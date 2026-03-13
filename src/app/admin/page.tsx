@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase, STORE, PLATFORMS, ORDER_STATUSES, type Category, type Service, type Order, type Profile, type Provider } from "@/lib/supabase";
-import { getProviderServices, getProviderBalance, getMultiOrderStatus } from "@/lib/smm-api";
+import { getProviderServices, getProviderBalance } from "@/lib/smm-api";
 import { translateToArabic, translateCategory } from "@/lib/translate";
 import toast from "react-hot-toast";
 import Link from "next/link";
@@ -290,18 +290,22 @@ export default function AdminPage() {
   async function updateOrderStatuses() {
     setSyncing(true);
     try {
-      const { data: pending } = await supabase.from("orders").select("*, service:services(provider_id)").in("status", ["pending", "processing", "in_progress"]).neq("api_order_id", "").limit(100);
-      if (!pending?.length) { toast("لا توجد طلبات"); setSyncing(false); return; }
-      const byProv: Record<string, any[]> = {};
-      for (const o of pending) { const p = (o as any).service?.provider_id; if (p) (byProv[p] = byProv[p] || []).push(o); }
-      const sMap: Record<string, string> = { Pending: "pending", Processing: "processing", "In progress": "in_progress", Completed: "completed", Cancelled: "cancelled", Partial: "partial", Canceled: "cancelled" };
-      let total = 0;
-      for (const [pid, ords] of Object.entries(byProv)) {
-        const st = await getMultiOrderStatus(pid, ords.map((o: any) => o.api_order_id));
-        for (const o of ords) { const s = st?.[o.api_order_id]; if (s && !s.error) { await supabase.from("orders").update({ status: sMap[s.status] || o.status, start_count: Number(s.start_count) || 0, remains: Number(s.remains) || 0 }).eq("id", o.id); total++; } }
+      const res = await fetch("/api/cron/update-orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secret: "growence-cron-2024" }),
+      }).then(r => r.json());
+
+      if (res.success) {
+        toast.success(`تم تحديث ${res.updated} طلب من أصل ${res.total} (${res.elapsed})`);
+        if (res.errors > 0) toast(`⚠️ ${res.errors} أخطاء`, { icon: "⚠️" });
+        fetchAll();
+      } else {
+        toast.error(res.error || "فشل التحديث");
+        console.error("Cron result:", res);
       }
-      toast.success(`تم تحديث ${total} طلب`); fetchAll();
-    } catch { toast.error("خطأ"); } finally { setSyncing(false); }
+    } catch (err) { toast.error("خطأ في الاتصال"); console.error(err); }
+    finally { setSyncing(false); }
   }
 
   async function deleteAllCategories() { if (!confirm("⚠️ حذف جميع الفئات؟")) return; if (!confirm("تأكيد نهائي؟")) return; await supabase.from("categories").delete().neq("id", "00000000-0000-0000-0000-000000000000"); toast.success("تم"); fetchAll(); }
