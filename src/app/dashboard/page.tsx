@@ -238,13 +238,16 @@ export default function DashboardPage() {
     if (qty < selectedService.min_quantity || qty > selectedService.max_quantity) { toast.error(`الكمية: ${selectedService.min_quantity} - ${selectedService.max_quantity}`); return; }
     if (!profile || profile.balance < orderPrice) { toast.error("رصيدك غير كافٍ!"); return; }
     try {
-      const apiResult = await placeProviderOrder(selectedService.provider_id, selectedService.api_service_id, orderLink, qty);
-      if (apiResult.error) { toast.error(`خطأ: ${apiResult.error}`); return; }
-      await supabase.from("profiles").update({ balance: profile.balance - orderPrice, total_spent: (profile.total_spent || 0) + orderPrice }).eq("id", user.id);
-      await supabase.from("orders").insert({ user_id: user.id, service_id: selectedService.id, api_order_id: String(apiResult.order || ""), link: orderLink, quantity: qty, price: orderPrice, status: "pending", start_count: 0, remains: qty });
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: user.id, service_id: selectedService.id, link: orderLink, quantity: qty }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) { toast.error(data.error || "حدث خطأ"); return; }
       toast.success("تم إرسال الطلب بنجاح!"); setOrderLink(""); setOrderQuantity(""); setSelectedService(null);
       await Promise.all([fetchProfile(user.id), fetchOrders(user.id)]);
-    } catch (err) { console.error(err); toast.error("حدث خطأ"); }
+    } catch (err) { console.error(err); toast.error("حدث خطأ في الاتصال"); }
   }
 
   async function handleLogout() { await supabase.auth.signOut(); router.push("/auth"); }

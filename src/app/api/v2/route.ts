@@ -8,6 +8,29 @@ const supabase = createClient(
 
 export const dynamic = "force-dynamic";
 
+// ─── Rate Limiter (in-memory, per API key) ───
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT = 60; // requests per minute
+const RATE_WINDOW = 60 * 1000; // 1 minute
+
+function checkRateLimit(key: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(key);
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(key, { count: 1, resetAt: now + RATE_WINDOW });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT) return false;
+  entry.count++;
+  return true;
+}
+
+// Clean up old entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  rateLimitMap.forEach((v, k) => { if (now > v.resetAt) rateLimitMap.delete(k); });
+}, 5 * 60 * 1000);
+
 // ─── Helper: get provider and call its API ───
 async function getProvider(providerId: string) {
   const { data } = await supabase.from("providers").select("*").eq("id", providerId).single();
@@ -72,6 +95,11 @@ export async function POST(req: NextRequest) {
     const user = await authenticateUser(key);
     if (!user) {
       return NextResponse.json({ error: "Invalid API key or API access disabled" }, { status: 401 });
+    }
+
+    // Rate limit check
+    if (!checkRateLimit(key)) {
+      return NextResponse.json({ error: "Rate limit exceeded. Max 60 requests per minute." }, { status: 429 });
     }
 
     if (!action) {
