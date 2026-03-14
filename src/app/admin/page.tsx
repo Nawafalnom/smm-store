@@ -37,6 +37,8 @@ export default function AdminPage() {
   const [authed, setAuthed] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [password, setPassword] = useState("");
+  const [totpCode, setTotpCode] = useState("");
+  const [show2FA, setShow2FA] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [tab, setTab] = useState<"dashboard" | "reports" | "providers" | "categories" | "services" | "orders" | "users" | "tickets" | "notifications" | "deposits">("dashboard");
 
@@ -91,14 +93,16 @@ export default function AdminPage() {
 
   async function handleLogin() {
     if (!password.trim()) { toast.error("أدخل كلمة المرور"); return; }
+    if (show2FA && !totpCode.trim()) { toast.error("أدخل رمز التحقق من تطبيق المصادقة"); return; }
     setLoginLoading(true);
     try {
       const res = await fetch("/api/admin/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "login", password }),
+        body: JSON.stringify({ action: "login", password, totp_code: totpCode || undefined }),
       }).then(r => r.json());
       if (res.success) { setAuthed(true); toast.success("تم تسجيل الدخول ✓"); }
+      else if (res.require_2fa) { setShow2FA(true); toast.error(res.error || "أدخل رمز التحقق"); }
       else toast.error(res.error || "كلمة المرور غير صحيحة");
     } catch { toast.error("خطأ في الاتصال"); }
     finally { setLoginLoading(false); }
@@ -112,6 +116,8 @@ export default function AdminPage() {
     }).catch(() => {});
     setAuthed(false);
     setPassword("");
+    setTotpCode("");
+    setShow2FA(false);
     toast.success("تم تسجيل الخروج");
   }
 
@@ -464,9 +470,24 @@ export default function AdminPage() {
           <h1 className="font-display text-2xl font-800 mb-1" style={{ color: A }}>Admin Panel</h1>
           <p className="text-gray-500 mb-6 text-sm">لوحة إدارة {STORE.nameAr}</p>
           <div className="space-y-4">
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleLogin()} placeholder="كلمة المرور" className="admin-input text-center" dir="ltr" autoFocus />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && !show2FA && handleLogin()} placeholder="كلمة المرور" className="admin-input text-center" dir="ltr" autoFocus />
+            
+            {/* 2FA Code Input */}
+            {show2FA && (
+              <div className="animate-fade-in">
+                <div className="flex items-center gap-2 mb-2 justify-center">
+                  <span className="text-yellow-400 text-sm">🔐</span>
+                  <span className="text-gray-400 text-xs">رمز التحقق من تطبيق المصادقة</span>
+                </div>
+                <input type="text" value={totpCode} onChange={e => setTotpCode(e.target.value.replace(/[^0-9]/g, ""))} 
+                  onKeyDown={e => e.key === "Enter" && handleLogin()}
+                  placeholder="000000" maxLength={6}
+                  className="admin-input text-center !text-2xl !tracking-[0.5em] !font-mono" dir="ltr" autoFocus />
+              </div>
+            )}
+            
             <button onClick={handleLogin} disabled={loginLoading} className="w-full py-3.5 rounded-xl font-bold text-white transition-all hover:brightness-110 disabled:opacity-60" style={{ background: `linear-gradient(135deg, ${A}, ${A}cc)` }}>
-              {loginLoading ? "جاري الدخول..." : "دخول ←"}
+              {loginLoading ? "جاري التحقق..." : show2FA ? "🔐 تأكيد الدخول" : "دخول ←"}
             </button>
           </div>
           <Link href="/" className="block mt-5 text-sm text-gray-600 hover:text-gray-400 transition">← العودة للمتجر</Link>
