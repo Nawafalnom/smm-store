@@ -191,14 +191,14 @@ export const PAYMENT_METHODS = {
     name: "Binance Pay",
     nameEn: "Binance Pay",
     icon: "🔶",
-    description: "دفع عبر Binance Pay — فوري وتلقائي ✓",
+    description: "ادفع عبر Binance Pay يدوياً — تأكيد خلال 5-30 دقيقة",
     minAmount: 1,
     qrCode: "https://www2.0zz0.com/2026/01/16/15/195538412.png",
     details: [
       { label: "Binance Pay ID", value: "1027009797" },
       { label: "العملة", value: "USDT" },
     ],
-    instructions: "اختر المبلغ واضغط ادفع — سيتم تحويلك لـ Binance Pay تلقائياً وإضافة رصيدك فوراً بعد الدفع",
+    instructions: "1. امسح الـ QR أو أرسل USDT للـ Pay ID أعلاه\n2. أدخل Transaction ID بالأسفل\n3. افتح تذكرة دعم أو تواصل واتساب لتأكيد الدفع",
     enabled: true,
   },
 };
