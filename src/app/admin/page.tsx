@@ -350,7 +350,7 @@ export default function AdminPage() {
   async function deleteProv(id: string) { if (!confirm("حذف؟")) return; await supabase.from("providers").delete().eq("id", id); fetchAll(); }
   async function saveCat() { try { if (editingCat?.id) await supabase.from("categories").update(catForm).eq("id", editingCat.id); else await supabase.from("categories").insert(catForm); toast.success("تم"); setShowCatForm(false); setEditingCat(null); setCatForm({ name: "", sort_order: 0, is_active: true }); fetchAll(); } catch { toast.error("خطأ"); } }
   async function deleteCat(id: string) { if (!confirm("حذف؟")) return; await supabase.from("categories").delete().eq("id", id); fetchAll(); }
-  async function saveSvc() { try { if (editingSvc?.id) await supabase.from("services").update(svcForm).eq("id", editingSvc.id); else await supabase.from("services").insert(svcForm); toast.success("تم"); setShowSvcForm(false); setEditingSvc(null); fetchAll(); } catch { toast.error("خطأ"); } }
+  async function saveSvc() { try { const { id, created_at, provider, category, ...cleanForm } = svcForm as any; if (editingSvc?.id) await supabase.from("services").update(cleanForm).eq("id", editingSvc.id); else await supabase.from("services").insert(cleanForm); toast.success("تم"); setShowSvcForm(false); setEditingSvc(null); fetchAll(); } catch { toast.error("خطأ"); } }
   async function deleteSvc(id: string) { if (!confirm("حذف؟")) return; await supabase.from("services").delete().eq("id", id); fetchAll(); }
 
   // Translate all existing English services/categories to Arabic
