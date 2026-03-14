@@ -181,6 +181,7 @@ export const PAYMENT_METHODS = {
     icon: "💛",
     description: "تحويل USDT على شبكة BNB Smart Chain — تأكيد خلال 5-15 دقيقة",
     minAmount: 1,
+    qrCode: "/qr/bep20.jpg",
     details: [
       { label: "الشبكة", value: "BEP20 (BSC)" },
       { label: "العنوان", value: "0x15986c412a3b3802a80c6b0a7182aeb8409e8bfe" },
@@ -195,6 +196,7 @@ export const PAYMENT_METHODS = {
     icon: "💎",
     description: "تحويل USDT على شبكة Tron — تأكيد خلال 5-30 دقيقة",
     minAmount: 1,
+    qrCode: "/qr/trc20.jpg",
     details: [
       { label: "الشبكة", value: "TRC20 (Tron)" },
       { label: "العنوان", value: "TQ8BCjYVYZFBJJZu25bQJejvtqaFarZVWq" },
