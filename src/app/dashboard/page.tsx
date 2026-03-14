@@ -604,7 +604,93 @@ export default function DashboardPage() {
               </div>
 
               {orders.length === 0 ? <div className="card-dark p-12 text-center text-gray-500">لا توجد طلبات بعد</div> : (
-                <div className="overflow-x-auto"><table className="w-full text-xs">
+                <>
+                {/* ═══ MOBILE CARDS ═══ */}
+                <div className="lg:hidden space-y-3">
+                  {displayedOrders.map((o) => {
+                    const st = ORDER_STATUSES[o.status] || ORDER_STATUSES.pending;
+                    const svc = (o as any).service;
+                    const pid = svc?.provider?.id;
+                    const canCancel = svc?.can_cancel && pid && ["pending", "processing", "in_progress"].includes(o.status);
+                    const canRefill = svc?.can_refill && pid && ["completed", "partial"].includes(o.status);
+                    return (
+                      <div key={o.id} className="card-dark p-4">
+                        {/* Header: ID + Status + Date */}
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-white font-bold font-mono text-sm">#{(o as any).order_number || o.id?.slice(0, 8)}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded-md text-xs font-bold" style={{ background: `${st.color}20`, color: st.color }}>{st.label}</span>
+                            <span className="text-gray-600 text-[10px]">{new Date(o.created_at!).toLocaleDateString("ar-EG")}</span>
+                          </div>
+                        </div>
+                        {/* Service Name */}
+                        <div className="text-gray-300 text-sm mb-2 leading-snug">
+                          <span className="text-gray-600 font-mono text-[10px] ml-1">{svc?.site_id || svc?.api_service_id}</span>
+                          {svc?.name || "-"}
+                        </div>
+                        {/* Link */}
+                        <a href={o.link} target="_blank" rel="noopener" className="text-blue-400 text-xs hover:underline truncate block mb-3" dir="ltr">{o.link}</a>
+                        {/* Stats Row */}
+                        <div className="flex flex-wrap gap-3 text-xs mb-3">
+                          <div><span className="text-gray-500">التكلفة: </span><span className="text-white font-bold">${o.price.toFixed(4)}</span></div>
+                          <div><span className="text-gray-500">الكمية: </span><span className="text-white font-bold">{o.quantity.toLocaleString()}</span></div>
+                          {o.start_count > 0 && <div><span className="text-gray-500">البدء: </span><span className="text-gray-300">{o.start_count.toLocaleString()}</span></div>}
+                          {o.remains > 0 && <div><span className="text-gray-500">المتبقي: </span><span className="font-bold" style={{ color: "#f59e0b" }}>{o.remains.toLocaleString()}</span></div>}
+                        </div>
+                        {/* Actions */}
+                        <div className="flex flex-wrap gap-2">
+                          {canRefill && <button onClick={async () => {
+                            try { const res = await refillOrder(pid, o.api_order_id); if (res?.refill && !res.refill?.error) toast.success(`تم طلب التعويض! رقم: ${res.refill}`); else toast.error(res?.refill?.error || "فشل"); } catch { toast.error("خطأ"); }
+                          }} className="px-3 py-1.5 rounded-lg bg-green-500/20 text-green-400 text-xs font-bold">♻️ تعويض</button>}
+                          {canCancel && <button onClick={async () => {
+                            if (!confirm("هل تريد إرسال طلب إلغاء؟")) return;
+                            try {
+                              toast("جاري الإلغاء...");
+                              const cancelRes = await cancelOrders(pid, [o.api_order_id]);
+                              const cancelData = cancelRes?.[0];
+                              if (cancelData?.cancel?.error) { toast.error(`رفض: ${cancelData.cancel.error}`); return; }
+                              await new Promise(r => setTimeout(r, 2000));
+                              const statusRes = await getOrderStatus(pid, o.api_order_id);
+                              if (!statusRes || statusRes.error) { toast.error("فشل التحقق"); return; }
+                              const providerStatus = statusRes.status;
+                              const remains = Number(statusRes.remains) || 0;
+                              const startCount = Number(statusRes.start_count) || 0;
+                              if (providerStatus === "Cancelled" || providerStatus === "Canceled") {
+                                await supabase.from("orders").update({ status: "cancelled", remains: 0, start_count: startCount }).eq("id", o.id);
+                                if (profile) { await supabase.from("profiles").update({ balance: profile.balance + o.price, total_spent: Math.max(0, (profile.total_spent || 0) - o.price) }).eq("id", user.id); }
+                                toast.success(`تم الإلغاء! استرداد $${o.price.toFixed(4)}`);
+                              } else if (providerStatus === "Partial") {
+                                const refund = (o.price / o.quantity) * remains;
+                                await supabase.from("orders").update({ status: "partial", remains, start_count: startCount }).eq("id", o.id);
+                                if (refund > 0 && profile) { await supabase.from("profiles").update({ balance: profile.balance + refund, total_spent: Math.max(0, (profile.total_spent || 0) - refund) }).eq("id", user.id); }
+                                toast.success(`تجزّأ: استرداد $${refund.toFixed(4)}`);
+                              } else { toast(`حالة: ${providerStatus}`); }
+                              await Promise.all([fetchProfile(user.id), fetchOrders(user.id)]);
+                            } catch { toast.error("خطأ"); }
+                          }} className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-bold">❌ إلغاء</button>}
+                          {pid && o.api_order_id && <button onClick={async () => {
+                            try {
+                              const statusRes = await getOrderStatus(pid, o.api_order_id);
+                              if (!statusRes || statusRes.error) { toast.error("فشل"); return; }
+                              const sMap: Record<string, string> = { "Pending": "pending", "Processing": "processing", "In progress": "in_progress", "Completed": "completed", "Cancelled": "cancelled", "Partial": "partial", "Canceled": "cancelled" };
+                              const newStatus = sMap[statusRes.status] || o.status;
+                              const remains = Number(statusRes.remains) || 0;
+                              const startCount = Number(statusRes.start_count) || 0;
+                              if (newStatus === "partial" && o.status !== "partial") { const refund = (o.price / o.quantity) * remains; if (refund > 0 && profile) { await supabase.from("profiles").update({ balance: profile.balance + refund, total_spent: Math.max(0, (profile.total_spent || 0) - refund) }).eq("id", user.id); toast.success(`تجزئة: استرداد $${refund.toFixed(4)}`); } }
+                              if (newStatus === "cancelled" && o.status !== "cancelled") { if (profile) { await supabase.from("profiles").update({ balance: profile.balance + o.price, total_spent: Math.max(0, (profile.total_spent || 0) - o.price) }).eq("id", user.id); toast.success(`ملغي: استرداد $${o.price.toFixed(4)}`); } }
+                              await supabase.from("orders").update({ status: newStatus, remains, start_count: startCount }).eq("id", o.id);
+                              toast(`${statusRes.status} | بدء: ${startCount} | متبقي: ${remains}`);
+                              await Promise.all([fetchProfile(user.id), fetchOrders(user.id)]);
+                            } catch { toast.error("خطأ"); }
+                          }} className="px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-400 text-xs font-bold">🔄 تحديث</button>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* ═══ DESKTOP TABLE ═══ */}
+                <div className="hidden lg:block overflow-x-auto"><table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-white/5 text-gray-500" style={{ background: `${A}10` }}>
                       <th className="py-3 px-2 text-right font-bold" style={{ color: A }}>ID</th>
@@ -652,73 +738,43 @@ export default function DashboardPage() {
                         <td className="py-2.5 px-2">
                           <div className="flex flex-wrap gap-1">
                             {canRefill && <button onClick={async () => {
-                              try {
-                                const res = await refillOrder(pid, o.api_order_id);
-                                if (res?.refill && !res.refill?.error) {
-                                  toast.success(`تم طلب التعويض! رقم: ${res.refill}`);
-                                } else {
-                                  toast.error(res?.refill?.error || "فشل طلب التعويض");
-                                }
-                              } catch { toast.error("خطأ"); }
+                              try { const res = await refillOrder(pid, o.api_order_id); if (res?.refill && !res.refill?.error) toast.success(`تم طلب التعويض! رقم: ${res.refill}`); else toast.error(res?.refill?.error || "فشل"); } catch { toast.error("خطأ"); }
                             }} className="px-2.5 py-1 rounded-md bg-green-500/20 text-green-400 font-bold hover:bg-green-500/30 transition">Refill</button>}
-
                             {canCancel && <button onClick={async () => {
-                              if (!confirm("هل تريد إرسال طلب إلغاء؟ سيتم التحقق من المزوّد.")) return;
+                              if (!confirm("هل تريد إرسال طلب إلغاء؟")) return;
                               try {
-                                toast("جاري إرسال طلب الإلغاء...");
+                                toast("جاري الإلغاء...");
                                 const cancelRes = await cancelOrders(pid, [o.api_order_id]);
                                 const cancelData = cancelRes?.[0];
-                                if (cancelData?.cancel?.error) { toast.error(`رفض المزوّد: ${cancelData.cancel.error}`); return; }
-                                toast("جاري التحقق من حالة الطلب...");
+                                if (cancelData?.cancel?.error) { toast.error(`رفض: ${cancelData.cancel.error}`); return; }
                                 await new Promise(r => setTimeout(r, 2000));
                                 const statusRes = await getOrderStatus(pid, o.api_order_id);
                                 if (!statusRes || statusRes.error) { toast.error("فشل التحقق"); return; }
-                                const providerStatus = statusRes.status;
-                                const remains = Number(statusRes.remains) || 0;
-                                const startCount = Number(statusRes.start_count) || 0;
-                                if (providerStatus === "Cancelled" || providerStatus === "Canceled") {
-                                  await supabase.from("orders").update({ status: "cancelled", remains: 0, start_count: startCount }).eq("id", o.id);
-                                  if (profile) { await supabase.from("profiles").update({ balance: profile.balance + o.price, total_spent: Math.max(0, (profile.total_spent || 0) - o.price) }).eq("id", user.id); }
-                                  toast.success(`تم الإلغاء! استرداد $${o.price.toFixed(4)}`);
-                                } else if (providerStatus === "Partial") {
-                                  const refund = (o.price / o.quantity) * remains;
-                                  await supabase.from("orders").update({ status: "partial", remains, start_count: startCount }).eq("id", o.id);
-                                  if (refund > 0 && profile) { await supabase.from("profiles").update({ balance: profile.balance + refund, total_spent: Math.max(0, (profile.total_spent || 0) - refund) }).eq("id", user.id); }
-                                  toast.success(`تجزّأ: وصل ${o.quantity - remains} من ${o.quantity}. استرداد $${refund.toFixed(4)}`);
-                                } else {
-                                  const sMap: Record<string, string> = { "Pending": "pending", "Processing": "processing", "In progress": "in_progress", "Completed": "completed" };
-                                  await supabase.from("orders").update({ status: sMap[providerStatus] || o.status, remains, start_count: startCount }).eq("id", o.id);
-                                  toast(`حالة: ${providerStatus}. لم يتم الإلغاء بعد.`);
-                                }
-                                await Promise.all([fetchProfile(user.id), fetchOrders(user.id)]);
-                              } catch (err) { console.error(err); toast.error("خطأ"); }
-                            }} className="px-2.5 py-1 rounded-md bg-red-500/20 text-red-400 font-bold hover:bg-red-500/30 transition">Cancel</button>}
-
-                            {pid && o.api_order_id && <button onClick={async () => {
-                              try {
-                                const statusRes = await getOrderStatus(pid, o.api_order_id);
-                                if (!statusRes || statusRes.error) { toast.error("فشل"); return; }
-                                const sMap: Record<string, string> = { "Pending": "pending", "Processing": "processing", "In progress": "in_progress", "Completed": "completed", "Cancelled": "cancelled", "Partial": "partial", "Canceled": "cancelled" };
-                                const newStatus = sMap[statusRes.status] || o.status;
-                                const remains = Number(statusRes.remains) || 0;
-                                const startCount = Number(statusRes.start_count) || 0;
-                                if (newStatus === "partial" && o.status !== "partial") {
-                                  const refund = (o.price / o.quantity) * remains;
-                                  if (refund > 0 && profile) { await supabase.from("profiles").update({ balance: profile.balance + refund, total_spent: Math.max(0, (profile.total_spent || 0) - refund) }).eq("id", user.id); toast.success(`تجزئة: استرداد $${refund.toFixed(4)}`); }
-                                }
-                                if (newStatus === "cancelled" && o.status !== "cancelled") {
-                                  if (profile) { await supabase.from("profiles").update({ balance: profile.balance + o.price, total_spent: Math.max(0, (profile.total_spent || 0) - o.price) }).eq("id", user.id); toast.success(`ملغي: استرداد $${o.price.toFixed(4)}`); }
-                                }
-                                await supabase.from("orders").update({ status: newStatus, remains, start_count: startCount }).eq("id", o.id);
-                                toast(`الحالة: ${statusRes.status} | بدء: ${startCount} | متبقي: ${remains}`);
+                                const providerStatus = statusRes.status; const remains = Number(statusRes.remains) || 0; const startCount = Number(statusRes.start_count) || 0;
+                                if (providerStatus === "Cancelled" || providerStatus === "Canceled") { await supabase.from("orders").update({ status: "cancelled", remains: 0, start_count: startCount }).eq("id", o.id); if (profile) { await supabase.from("profiles").update({ balance: profile.balance + o.price, total_spent: Math.max(0, (profile.total_spent || 0) - o.price) }).eq("id", user.id); } toast.success(`تم الإلغاء! استرداد $${o.price.toFixed(4)}`); }
+                                else if (providerStatus === "Partial") { const refund = (o.price / o.quantity) * remains; await supabase.from("orders").update({ status: "partial", remains, start_count: startCount }).eq("id", o.id); if (refund > 0 && profile) { await supabase.from("profiles").update({ balance: profile.balance + refund, total_spent: Math.max(0, (profile.total_spent || 0) - refund) }).eq("id", user.id); } toast.success(`تجزّأ: استرداد $${refund.toFixed(4)}`); }
+                                else { const sMap: Record<string, string> = { "Pending": "pending", "Processing": "processing", "In progress": "in_progress", "Completed": "completed" }; await supabase.from("orders").update({ status: sMap[providerStatus] || o.status, remains, start_count: startCount }).eq("id", o.id); toast(`حالة: ${providerStatus}`); }
                                 await Promise.all([fetchProfile(user.id), fetchOrders(user.id)]);
                               } catch { toast.error("خطأ"); }
-                            }} className="px-2.5 py-1 rounded-md bg-blue-500/20 text-blue-400 font-bold hover:bg-blue-500/30 transition" title="تحديث الحالة">🔄</button>}
+                            }} className="px-2.5 py-1 rounded-md bg-red-500/20 text-red-400 font-bold hover:bg-red-500/30 transition">Cancel</button>}
+                            {pid && o.api_order_id && <button onClick={async () => {
+                              try {
+                                const statusRes = await getOrderStatus(pid, o.api_order_id); if (!statusRes || statusRes.error) { toast.error("فشل"); return; }
+                                const sMap: Record<string, string> = { "Pending": "pending", "Processing": "processing", "In progress": "in_progress", "Completed": "completed", "Cancelled": "cancelled", "Partial": "partial", "Canceled": "cancelled" };
+                                const newStatus = sMap[statusRes.status] || o.status; const remains = Number(statusRes.remains) || 0; const startCount = Number(statusRes.start_count) || 0;
+                                if (newStatus === "partial" && o.status !== "partial") { const refund = (o.price / o.quantity) * remains; if (refund > 0 && profile) { await supabase.from("profiles").update({ balance: profile.balance + refund, total_spent: Math.max(0, (profile.total_spent || 0) - refund) }).eq("id", user.id); toast.success(`تجزئة: استرداد $${refund.toFixed(4)}`); } }
+                                if (newStatus === "cancelled" && o.status !== "cancelled") { if (profile) { await supabase.from("profiles").update({ balance: profile.balance + o.price, total_spent: Math.max(0, (profile.total_spent || 0) - o.price) }).eq("id", user.id); toast.success(`ملغي: استرداد $${o.price.toFixed(4)}`); } }
+                                await supabase.from("orders").update({ status: newStatus, remains, start_count: startCount }).eq("id", o.id);
+                                toast(`${statusRes.status} | بدء: ${startCount} | متبقي: ${remains}`);
+                                await Promise.all([fetchProfile(user.id), fetchOrders(user.id)]);
+                              } catch { toast.error("خطأ"); }
+                            }} className="px-2.5 py-1 rounded-md bg-blue-500/20 text-blue-400 font-bold hover:bg-blue-500/30 transition" title="تحديث">🔄</button>}
                           </div>
                         </td>
                       </tr>);
                   })}</tbody>
                 </table></div>
+                </>
               )}
             </div>
           )}
