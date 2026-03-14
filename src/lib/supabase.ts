@@ -159,33 +159,6 @@ export const DEPOSIT_STATUSES: Record<string, { label: string; color: string }> 
 };
 
 export const PAYMENT_METHODS = {
-  manual: {
-    id: "manual",
-    name: "تحويل يدوي",
-    nameEn: "Manual Transfer",
-    icon: "🏦",
-    description: "تحويل بنكي أو واتساب — يتم التأكيد خلال 1-24 ساعة",
-    minAmount: 1,
-    details: [
-      { label: "واتساب", value: "+966571373367" },
-    ],
-    instructions: "أرسل المبلغ ثم أدخل رقم العملية أو أرسل لنا إيصال الدفع على واتساب",
-    enabled: true,
-  },
-  usdt_trc20: {
-    id: "usdt_trc20",
-    name: "USDT (TRC20)",
-    nameEn: "USDT TRC20",
-    icon: "💎",
-    description: "تحويل USDT على شبكة Tron — تأكيد خلال 5-30 دقيقة",
-    minAmount: 5,
-    details: [
-      { label: "الشبكة", value: "TRC20 (Tron)" },
-      { label: "العنوان", value: "TYourTRC20WalletAddressHere" },
-    ],
-    instructions: "أرسل USDT إلى العنوان أعلاه ثم الصق Transaction Hash في الحقل",
-    enabled: true,
-  },
   binance_pay: {
     id: "binance_pay",
     name: "Binance Pay",
@@ -198,7 +171,48 @@ export const PAYMENT_METHODS = {
       { label: "Binance Pay ID", value: "1027009797" },
       { label: "العملة", value: "USDT" },
     ],
-    instructions: "1. امسح الـ QR أو أرسل USDT للـ Pay ID أعلاه\n2. أدخل Transaction ID بالأسفل\n3. افتح تذكرة دعم أو تواصل واتساب لتأكيد الدفع",
+    instructions: "1. امسح الـ QR أو أرسل USDT للـ Pay ID أعلاه\n2. أدخل Transaction ID بالأسفل\n3. تواصل واتساب أو افتح تذكرة لتأكيد الدفع",
+    enabled: true,
+  },
+  usdt_bep20: {
+    id: "usdt_bep20",
+    name: "USDT (BEP20)",
+    nameEn: "USDT BEP20",
+    icon: "💛",
+    description: "تحويل USDT على شبكة BNB Smart Chain — تأكيد خلال 5-15 دقيقة",
+    minAmount: 1,
+    details: [
+      { label: "الشبكة", value: "BEP20 (BSC)" },
+      { label: "العنوان", value: "0x15986c412a3b3802a80c6b0a7182aeb8409e8bfe" },
+    ],
+    instructions: "أرسل USDT (BEP20) إلى العنوان أعلاه ثم الصق Transaction Hash في الحقل",
+    enabled: true,
+  },
+  usdt_trc20: {
+    id: "usdt_trc20",
+    name: "USDT (TRC20)",
+    nameEn: "USDT TRC20",
+    icon: "💎",
+    description: "تحويل USDT على شبكة Tron — تأكيد خلال 5-30 دقيقة",
+    minAmount: 1,
+    details: [
+      { label: "الشبكة", value: "TRC20 (Tron)" },
+      { label: "العنوان", value: "TQ8BCjYVYZFBJJZu25bQJejvtqaFarZVWq" },
+    ],
+    instructions: "أرسل USDT (TRC20) إلى العنوان أعلاه ثم الصق Transaction Hash في الحقل",
+    enabled: true,
+  },
+  manual: {
+    id: "manual",
+    name: "تحويل يدوي",
+    nameEn: "Manual Transfer",
+    icon: "🏦",
+    description: "تحويل بنكي أو واتساب — يتم التأكيد خلال 1-24 ساعة",
+    minAmount: 1,
+    details: [
+      { label: "واتساب", value: "+966571373367" },
+    ],
+    instructions: "أرسل المبلغ ثم أدخل رقم العملية أو أرسل لنا إيصال الدفع على واتساب",
     enabled: true,
   },
 };
