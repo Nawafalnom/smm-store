@@ -137,6 +137,14 @@ export default function AdminPage() {
       supabase.from("admin_notifications").select("*").order("created_at", { ascending: false }).limit(50).then(r => r, () => ({ data: null, error: null })),
       supabase.from("deposits").select("*, profile:profiles(username)").order("created_at", { ascending: false }).limit(200).then(r => r, () => ({ data: null, error: null })),
     ]);
+    // Debug logging
+    console.log("[Admin Fetch]", {
+      providers: p.data?.length ?? "ERR: " + p.error?.message,
+      categories: c.data?.length ?? "ERR: " + c.error?.message,
+      services: s.data?.length ?? "ERR: " + s.error?.message,
+      orders: o.data?.length ?? "ERR: " + o.error?.message,
+      users: u.data?.length ?? "ERR: " + u.error?.message,
+    });
     if (p.data) setProviders(p.data);
     if (c.data) setCategories(c.data);
     if (s.data) setServices(s.data);
