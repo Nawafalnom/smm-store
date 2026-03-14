@@ -87,6 +87,7 @@ export default function DashboardPage() {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [globalOrderCount, setGlobalOrderCount] = useState(279837);
   const [categories, setCategories] = useState<Category[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
@@ -162,7 +163,7 @@ export default function DashboardPage() {
       }
     }
 
-    await Promise.all([fetchProfile(session.user.id), fetchOrders(session.user.id), fetchDeposits(session.user.id), fetchTickets(session.user.id), fetchCategories(), fetchServices()]);
+    await Promise.all([fetchProfile(session.user.id), fetchOrders(session.user.id), fetchDeposits(session.user.id), fetchTickets(session.user.id), fetchCategories(), fetchServices(), fetchGlobalOrderCount()]);
     setLoading(false);
   }
 
@@ -173,6 +174,7 @@ export default function DashboardPage() {
   async function fetchReferrals(uid: string) { const { data } = await supabase.from("profiles").select("id, username, created_at, total_spent").eq("referred_by", uid).order("created_at", { ascending: false }).then(r => r, () => ({ data: null })); if (data) setReferrals(data); }
   async function fetchCommissions(uid: string) { const { data } = await supabase.from("referral_commissions").select("*").eq("referrer_id", uid).order("created_at", { ascending: false }).limit(50).then(r => r, () => ({ data: null })); if (data) setCommissions(data as any); }
   async function fetchCategories() { const { data } = await supabase.from("categories").select("*").eq("is_active", true).order("sort_order"); if (data) setCategories(data); }
+  async function fetchGlobalOrderCount() { const { data } = await supabase.from("orders").select("order_number").order("order_number", { ascending: false }).limit(1).then(r => r, () => ({ data: null })); if (data && data[0]?.order_number) setGlobalOrderCount(data[0].order_number); }
   async function fetchServices() { const { data } = await supabase.from("services").select("*, category:categories(*), provider:providers(id, name)").eq("is_active", true).order("sort_order"); if (data) setServices(data); }
 
   // ── Filter Logic ──
@@ -355,7 +357,7 @@ export default function DashboardPage() {
             <div className="w-px h-3 bg-white/10" />
             <div className="flex items-center gap-1.5 shrink-0">
               <span className="text-[10px] text-gray-500">الطلبات</span>
-              <span className="text-xs font-bold text-gray-300">{orders.length}</span>
+              <span className="text-xs font-bold text-gray-300">{globalOrderCount.toLocaleString()}</span>
             </div>
           </div>
         </header>
@@ -364,7 +366,7 @@ export default function DashboardPage() {
           {/* Stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
             {[
-              { label: "الطلبات", value: String(orders.length), icon: "📊", color: C },
+              { label: "الطلبات", value: globalOrderCount.toLocaleString(), icon: "📊", color: C },
               { label: "الإنفاق", value: `$${(profile?.total_spent || 0).toFixed(2)}`, icon: "💵", color: "#10b981" },
               { label: "المستوى", value: `${profile?.level || 1}`, icon: "🏆", color: A },
               { label: "الرصيد", value: `$${(profile?.balance || 0).toFixed(2)}`, icon: "👁️", color: "#3b82f6" },
