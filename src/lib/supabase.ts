@@ -204,6 +204,23 @@ export const PAYMENT_METHODS = {
     instructions: "أرسل USDT (TRC20) إلى العنوان أعلاه ثم الصق Transaction Hash في الحقل",
     enabled: true,
   },
+  sham_cash: {
+    id: "sham_cash",
+    name: "شام كاش",
+    nameEn: "Sham Cash",
+    icon: "💚",
+    qrCode: "/qr/shamcash.jpg",
+    description: "الدفع بالدولار أو الليرة السورية — الحد الأدنى $5",
+    minAmount: 5,
+    details: [
+      { label: "كود شام كاش", value: "36979014d0a570847fb5e5371a886626" },
+      { label: "الاسم", value: "Nawaf_Al" },
+      { label: "العملة", value: "USD أو SYP (سعر الصرف 125 ل.س)" },
+      { label: "الحد الأدنى", value: "$5" },
+    ],
+    instructions: "1. انسخ كود شام كاش أعلاه وادفع عبر التطبيق\n2. أدخل رقم العملية بالأسفل\n3. تواصل واتساب أو افتح تذكرة لتأكيد الدفع مع صورة التحويل",
+    enabled: true,
+  },
   syriatel_cash: {
     id: "syriatel_cash",
     name: "سيريتل كاش",
