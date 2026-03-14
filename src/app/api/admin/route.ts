@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
       }
 
       const secret = TOTP_SECRET || generateSecret();
-      const issuer = "Growence Media Admin";
+      const issuer = "SMMSYRIA Admin";
       const account = "admin";
       const otpAuthUrl = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(account)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
       const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(otpAuthUrl)}`;

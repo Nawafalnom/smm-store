@@ -142,6 +142,7 @@ export default function AuthPage() {
   }
 
   const C = STORE.color;
+  const A = STORE.accentColor;
 
   return (
     <div className="min-h-screen bg-dark-900 bg-grid flex" style={{ "--brand-color": C, "--brand-rgb": STORE.colorRgb } as any}>
@@ -150,10 +151,7 @@ export default function AuthPage() {
         <div className="w-full max-w-md">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 mb-10">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center font-display font-900 text-lg"
-              style={{ background: `${C}20`, border: `1px solid ${C}40`, color: C }}>G</div>
-            <span className="font-display font-800 text-xl" style={{ color: C }}>Growence</span>
-            <span className="font-display font-800 text-xl text-white">Media</span>
+            <span className="font-display font-900 text-2xl"><span className="text-white">SMM</span><span style={{ color: A }}>SYRIA</span></span>
           </Link>
 
           {/* Title */}

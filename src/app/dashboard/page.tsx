@@ -303,9 +303,7 @@ export default function DashboardPage() {
 
         <div className="p-4 border-b border-white/5">
           <Link href="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center font-display font-900 text-sm" style={{ background: `${C}20`, border: `1px solid ${C}40`, color: C }}>G</div>
-            <span className="font-display font-800 text-sm" style={{ color: C }}>Growence</span>
-            <span className="font-display font-800 text-sm text-white">Media</span>
+            <span className="font-display font-900 text-lg"><span className="text-white">SMM</span><span style={{ color: A }}>SYRIA</span></span>
           </Link>
         </div>
         <div className="p-4">

@@ -111,15 +111,15 @@ export interface Order {
 
 // ─── Store Config ───
 export const STORE = {
-  name: "Growence Media",
-  nameAr: "جروينس ميديا",
+  name: "SMMSYRIA",
+  nameAr: "SMMSYRIA",
   whatsapp: "+966571373367",
   pixel: "",
-  color: "#6c5ce7",
-  colorRgb: "108, 92, 231",
+  color: "#ff4500",
+  colorRgb: "255, 69, 0",
   accentColor: "#ff6b35",
   accentRgb: "255, 107, 53",
-  description: "خدمات تسويق إلكتروني احترافية — متابعين، لايكات، مشاهدات لجميع المنصات",
+  description: "السيرفر رقم 1 في الشرق الأوسط — أسرع وأرخص خدمات التسويق الإلكتروني",
 };
 
 export const PLATFORMS = [

@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
       }
 
       const secret = TOTP_SECRET || generateSecret();
-      const uri = generateOTPAuthURI(secret, "admin", "Growence Media");
+      const uri = generateOTPAuthURI(secret, "admin", "SMMSYRIA");
 
       return NextResponse.json({
         success: true,
