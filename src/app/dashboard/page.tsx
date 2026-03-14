@@ -355,7 +355,7 @@ export default function DashboardPage() {
             <div className="w-px h-3 bg-white/10" />
             <div className="flex items-center gap-1.5 shrink-0">
               <span className="text-[10px] text-gray-500">الطلبات</span>
-              <span className="text-xs font-bold text-gray-300">{(orders.length > 0 ? Math.max(...orders.map((o: any) => o.order_number || 0)) : 279837).toLocaleString()}</span>
+              <span className="text-xs font-bold text-gray-300">{orders.length}</span>
             </div>
           </div>
         </header>
@@ -364,7 +364,7 @@ export default function DashboardPage() {
           {/* Stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
             {[
-              { label: "الطلبات", value: (orders.length > 0 ? Math.max(...orders.map((o: any) => o.order_number || 0)) : 279837).toLocaleString(), icon: "📊", color: C },
+              { label: "الطلبات", value: String(orders.length), icon: "📊", color: C },
               { label: "الإنفاق", value: `$${(profile?.total_spent || 0).toFixed(2)}`, icon: "💵", color: "#10b981" },
               { label: "المستوى", value: `${profile?.level || 1}`, icon: "🏆", color: A },
               { label: "الرصيد", value: `$${(profile?.balance || 0).toFixed(2)}`, icon: "👁️", color: "#3b82f6" },
