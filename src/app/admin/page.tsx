@@ -395,7 +395,19 @@ export default function AdminPage() {
     finally { setSyncing(false); }
   }
   async function updateOrderStatus(id: string, status: string) { await supabase.from("orders").update({ status }).eq("id", id); fetchAll(); }
-  async function updateBalance(uid: string) { const v = prompt("الرصيد الجديد:"); if (!v) return; await supabase.from("profiles").update({ balance: Number(v) }).eq("id", uid); toast.success("تم"); fetchAll(); }
+  async function updateBalance(uid: string) { 
+    const v = prompt("الرصيد الجديد:"); 
+    if (!v) return; 
+    try {
+      const res = await fetch("/api/admin/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update_balance", user_id: uid, balance: Number(v) }),
+      }).then(r => r.json());
+      if (res.success) { toast.success("تم تعديل الرصيد ✓"); fetchAll(); }
+      else toast.error(res.error || "فشل التعديل");
+    } catch { toast.error("خطأ في الاتصال"); }
+  }
 
   async function replyTicket() {
     if (!showTicketReply || !ticketReply.trim()) return;
@@ -411,15 +423,15 @@ export default function AdminPage() {
   async function approveDeposit(dep: Deposit) {
     if (!confirm(`قبول طلب شحن $${dep.amount} ؟ سيتم إضافة الرصيد للمستخدم.`)) return;
     try {
-      // 1. Update deposit status
-      await supabase.from("deposits").update({ status: "approved", updated_at: new Date().toISOString() }).eq("id", dep.id);
-      // 2. Add balance to user
-      const { data: profile } = await supabase.from("profiles").select("balance").eq("id", dep.user_id).single();
-      if (profile) {
-        await supabase.from("profiles").update({ balance: profile.balance + dep.amount }).eq("id", dep.user_id);
-      }
-      toast.success(`تم قبول الشحن ✓ — أضيف $${dep.amount} للمستخدم`);
-      fetchAll();
+      const res = await fetch("/api/admin/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "approve_deposit", deposit_id: dep.id }),
+      }).then(r => r.json());
+      if (res.success) {
+        toast.success(`تم قبول الشحن ✓ — أضيف $${dep.amount} للمستخدم`);
+        fetchAll();
+      } else toast.error(res.error || "خطأ");
     } catch (err) { toast.error("خطأ"); console.error(err); }
   }
 
@@ -900,9 +912,13 @@ export default function AdminPage() {
                 <td className="py-2 px-2">
                   <button onClick={async () => {
                     const newVal = !(u as any).api_enabled;
-                    await supabase.from("profiles").update({ api_enabled: newVal }).eq("id", u.id);
-                    toast.success(newVal ? "API مُفعّل" : "API مُعطّل");
-                    fetchAll();
+                    const res = await fetch("/api/admin/actions", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "toggle_api", user_id: u.id, enabled: newVal }),
+                    }).then(r => r.json());
+                    if (res.success) { toast.success(newVal ? "API مُفعّل" : "API مُعطّل"); fetchAll(); }
+                    else toast.error(res.error || "خطأ");
                   }} className={`px-2 py-0.5 rounded text-xs font-bold ${(u as any).api_enabled ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>
                     {(u as any).api_enabled ? "✓ مفعّل" : "✕ معطّل"}
                   </button>
