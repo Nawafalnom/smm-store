@@ -115,12 +115,12 @@ export async function POST(req: NextRequest) {
       case "services": {
         const { data: services } = await supabase
           .from("services")
-          .select("id, name, category:categories(name), price_per_1000, min_quantity, max_quantity, can_refill, can_cancel, description, api_service_id")
+          .select("id, name, site_id, category:categories(name), price_per_1000, min_quantity, max_quantity, can_refill, can_cancel, description, api_service_id")
           .eq("is_active", true)
           .order("sort_order");
 
         result = (services || []).map((s: any) => ({
-          service: s.api_service_id,
+          service: s.site_id || s.api_service_id,
           name: s.name,
           type: "Default",
           category: s.category?.name || "عام",
@@ -160,13 +160,25 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "Invalid quantity" }, { status: 400 });
         }
 
-        // Find service by api_service_id
-        const { data: svc } = await supabase
+        // Find service by site_id first, fallback to api_service_id
+        let svc: any = null;
+        const { data: svc1 } = await supabase
           .from("services")
           .select("*, provider:providers(*)")
-          .eq("api_service_id", Number(serviceId))
+          .eq("site_id", Number(serviceId))
           .eq("is_active", true)
           .single();
+        svc = svc1;
+
+        if (!svc) {
+          const { data: svc2 } = await supabase
+            .from("services")
+            .select("*, provider:providers(*)")
+            .eq("api_service_id", Number(serviceId))
+            .eq("is_active", true)
+            .single();
+          svc = svc2;
+        }
 
         if (!svc) {
           return NextResponse.json({ error: "Service not found or inactive" }, { status: 404 });

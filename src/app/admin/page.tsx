@@ -820,7 +820,8 @@ export default function AdminPage() {
           </div>
           <div className="overflow-x-auto"><table className="w-full text-xs">
             <thead><tr className="border-b border-white/5 text-gray-500">
-              <th className="py-2 px-2 text-right">ID</th>
+              <th className="py-2 px-2 text-right" style={{ color: A }}>Site ID</th>
+              <th className="py-2 px-2 text-right">API ID</th>
               <th className="py-2 px-2 text-right">الخدمة</th>
               <th className="py-2 px-2 text-right">المزوّد</th>
               <th className="py-2 px-2 text-right">أقل</th>
@@ -831,7 +832,8 @@ export default function AdminPage() {
             </tr></thead>
             <tbody>{services.map(s => (
               <tr key={s.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                <td className="py-2 px-2 text-gray-500 font-mono">{s.api_service_id}</td>
+                <td className="py-2 px-2 font-mono font-bold" style={{ color: A }}>{(s as any).site_id || "—"}</td>
+                <td className="py-2 px-2 text-gray-500 font-mono text-[10px]">{s.api_service_id}</td>
                 <td className="py-2.5 px-2 max-w-[320px]">
                   <div className="text-gray-200 truncate font-bold text-[11px]">{s.name}</div>
                   {(s as any).name_en && (s as any).name_en !== s.name && <div className="text-[10px] text-gray-600 truncate mt-0.5" dir="ltr">{(s as any).name_en}</div>}
@@ -1372,7 +1374,10 @@ export default function AdminPage() {
               <select value={svcForm.provider_id || ""} onChange={e => setSvcForm({ ...svcForm, provider_id: e.target.value })} className="admin-input"><option value="">المزوّد...</option>{providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
               <select value={svcForm.category_id || ""} onChange={e => setSvcForm({ ...svcForm, category_id: e.target.value })} className="admin-input"><option value="">الفئة...</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
               <input value={svcForm.name || ""} onChange={e => setSvcForm({ ...svcForm, name: e.target.value })} placeholder="الاسم" className="admin-input" />
-              <input type="number" value={svcForm.api_service_id || 0} onChange={e => setSvcForm({ ...svcForm, api_service_id: Number(e.target.value) })} placeholder="API ID" className="admin-input" dir="ltr" />
+              <div className="grid grid-cols-2 gap-2">
+                <input type="number" value={(svcForm as any).site_id || ""} onChange={e => setSvcForm({ ...svcForm, site_id: Number(e.target.value) || undefined } as any)} placeholder="Site ID (رقم الموقع)" className="admin-input" dir="ltr" style={{ borderColor: `${A}40` }} />
+                <input type="number" value={svcForm.api_service_id || 0} onChange={e => setSvcForm({ ...svcForm, api_service_id: Number(e.target.value) })} placeholder="API ID (المزوّد)" className="admin-input" dir="ltr" />
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <input type="number" step="0.001" value={svcForm.price_per_1000 || ""} onChange={e => setSvcForm({ ...svcForm, price_per_1000: Number(e.target.value) })} placeholder="$/1K" className="admin-input" dir="ltr" />
                 <input type="number" value={svcForm.min_quantity || ""} onChange={e => setSvcForm({ ...svcForm, min_quantity: Number(e.target.value) })} placeholder="أقل" className="admin-input" dir="ltr" />

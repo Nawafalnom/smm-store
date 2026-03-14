@@ -75,6 +75,7 @@ export interface Category {
 
 export interface Service {
   id?: string;
+  site_id?: number;
   category_id: string;
   provider_id: string;
   name: string;

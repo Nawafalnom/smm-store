@@ -210,7 +210,7 @@ export default function DashboardPage() {
     const q = searchQuery.toLowerCase();
     return services.filter(s => 
       s.name.toLowerCase().includes(q) || 
-      String(s.api_service_id).includes(q) ||
+      String(s.site_id || s.api_service_id).includes(q) ||
       (s as any).category?.name?.toLowerCase().includes(q)
     ).slice(0, 30);
   }, [services, searchQuery]);
@@ -430,7 +430,7 @@ export default function DashboardPage() {
                               setSearchFocused(false);
                               setOrderQuantity("");
                             }}>
-                            <span className="text-gray-600 font-mono text-xs mt-0.5 shrink-0">{svc.api_service_id}</span>
+                            <span className="text-gray-600 font-mono text-xs mt-0.5 shrink-0">{svc.site_id || svc.api_service_id}</span>
                             <div className="flex-1 min-w-0">
                               <div className="text-gray-200 text-sm truncate">{svc.name}</div>
                               <div className="flex items-center gap-2 mt-0.5">
@@ -475,7 +475,7 @@ export default function DashboardPage() {
                       className="admin-input" disabled={!selectedCatId}>
                       <option value="" disabled hidden>الخدمة</option>
                       {filteredServices.map((s) => (
-                        <option key={s.id} value={s.id}>{s.api_service_id} - {s.name} - ${s.price_per_1000} لكل 1000</option>
+                        <option key={s.id} value={s.id}>{(s.site_id || s.api_service_id)} - {s.name} - ${s.price_per_1000} لكل 1000</option>
                       ))}
                     </select>
                   </div>
@@ -641,7 +641,7 @@ export default function DashboardPage() {
                         <td className="py-2.5 px-2 text-gray-400">{o.start_count > 0 ? o.start_count.toLocaleString() : "-"}</td>
                         <td className="py-2.5 px-2 text-white font-bold">{o.quantity.toLocaleString()}</td>
                         <td className="py-2.5 px-2 text-gray-300 max-w-[200px]">
-                          <span className="text-gray-500 font-mono text-[10px]">{svc?.api_service_id}</span>
+                          <span className="text-gray-500 font-mono text-[10px]">{svc?.site_id || svc?.api_service_id}</span>
                           {" — "}
                           <span className="truncate">{svc?.name || "-"}</span>
                         </td>
@@ -737,7 +737,7 @@ export default function DashboardPage() {
                 </tr></thead>
                 <tbody>{services.map((s) => (
                   <tr key={s.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                    <td className="py-2 px-2 text-gray-500 font-mono">{s.api_service_id}</td>
+                    <td className="py-2 px-2 text-gray-500 font-mono">{s.site_id || s.api_service_id}</td>
                     <td className="py-2 px-2 text-gray-300">{s.name}</td>
                     <td className="py-2 px-2 font-bold" style={{ color: A }}>${s.price_per_1000}</td>
                     <td className="py-2 px-2 text-gray-400">{s.min_quantity.toLocaleString()}</td>
