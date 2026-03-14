@@ -457,7 +457,7 @@ export default function DashboardPage() {
                     <select value={selectedCatId}
                       onChange={(e) => { setSelectedCatId(e.target.value); setSelectedService(null); setOrderQuantity(""); }}
                       className="admin-input">
-                      <option value="">— اختر فئة ({filteredCategories.length} فئة) —</option>
+                      <option value="" disabled hidden>الفئة</option>
                       {filteredCategories.map((c) => (
                         <option key={c.id} value={c.id}>{c.name}</option>
                       ))}
@@ -470,7 +470,7 @@ export default function DashboardPage() {
                     <select value={selectedService?.id || ""}
                       onChange={(e) => { const svc = services.find(s => s.id === e.target.value); setSelectedService(svc || null); setOrderQuantity(""); }}
                       className="admin-input" disabled={!selectedCatId}>
-                      <option value="">— اختر خدمة ({filteredServices.length}) —</option>
+                      <option value="" disabled hidden>الخدمة</option>
                       {filteredServices.map((s) => (
                         <option key={s.id} value={s.id}>{s.api_service_id} - {s.name} - ${s.price_per_1000} لكل 1000</option>
                       ))}
