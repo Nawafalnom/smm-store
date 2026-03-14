@@ -453,7 +453,6 @@ export default function DashboardPage() {
 
                   {/* Category Dropdown */}
                   <div className="mb-4">
-                    <label className="block text-gray-400 text-sm mb-1.5">الفئة</label>
                     <select value={selectedCatId}
                       onChange={(e) => { setSelectedCatId(e.target.value); setSelectedService(null); setOrderQuantity(""); }}
                       className="admin-input">
@@ -466,7 +465,6 @@ export default function DashboardPage() {
 
                   {/* Service Dropdown */}
                   <div className="mb-4">
-                    <label className="block text-gray-400 text-sm mb-1.5">الخدمة</label>
                     <select value={selectedService?.id || ""}
                       onChange={(e) => { const svc = services.find(s => s.id === e.target.value); setSelectedService(svc || null); setOrderQuantity(""); }}
                       className="admin-input" disabled={!selectedCatId}>
@@ -496,32 +494,21 @@ export default function DashboardPage() {
 
                   {/* Link */}
                   <div className="mb-4">
-                    <label className="block text-gray-400 text-sm mb-1.5">الرابط</label>
                     <input type="url" value={orderLink} onChange={(e) => setOrderLink(e.target.value)} placeholder="https://instagram.com/..." className="admin-input" dir="ltr" />
                   </div>
 
                   {/* Quantity */}
                   <div className="mb-4">
-                    <label className="block text-gray-400 text-sm mb-1.5">الكمية</label>
                     <input type="number" value={orderQuantity} onChange={(e) => setOrderQuantity(e.target.value)}
-                      placeholder={selectedService ? `الحد الأدنى: ${selectedService.min_quantity} - الأقصى: ${selectedService.max_quantity.toLocaleString()}` : "اختر خدمة أولاً"}
+                      placeholder={selectedService ? `الكمية: ${selectedService.min_quantity} - ${selectedService.max_quantity.toLocaleString()}` : "اختر خدمة أولاً"}
                       className="admin-input" dir="ltr" disabled={!selectedService} />
                     {selectedService && <p className="text-gray-600 text-xs mt-1">الحد الأدنى: {selectedService.min_quantity.toLocaleString()} — الأقصى: {selectedService.max_quantity.toLocaleString()}</p>}
                   </div>
 
-                  {/* Average Time */}
-                  {selectedService && (
-                    <div className="mb-4">
-                      <label className="block text-gray-400 text-sm mb-1.5">متوسط الوقت</label>
-                      <div className="rounded-lg px-4 py-2.5 font-bold text-gray-300" style={{ background: "#e4e1ed15" }}>{selectedService.speed}</div>
-                    </div>
-                  )}
-
                   {/* Charge */}
                   <div className="mb-5">
-                    <label className="block text-gray-400 text-sm mb-1.5">التكلفة</label>
                     <div className="rounded-lg px-4 py-3 font-display font-bold text-xl" style={{ background: "#e4e1ed15", color: A }} dir="ltr">
-                      ${orderPrice.toFixed(4)}
+                      💰 ${orderPrice.toFixed(4)}
                     </div>
                   </div>
 
