@@ -202,6 +202,22 @@ export const PAYMENT_METHODS = {
     instructions: "أرسل USDT (TRC20) إلى العنوان أعلاه ثم الصق Transaction Hash في الحقل",
     enabled: true,
   },
+  syriatel_cash: {
+    id: "syriatel_cash",
+    name: "سيريتل كاش",
+    nameEn: "Syriatel Cash",
+    icon: "📱",
+    description: "للعملاء داخل سوريا فقط — عمولة 10% — تأكيد خلال 5-30 دقيقة",
+    minAmount: 1,
+    details: [
+      { label: "الكود الأول", value: "96090396" },
+      { label: "الكود الثاني (احتياطي)", value: "79089688" },
+      { label: "الحد الأدنى", value: "1,000 ل.س" },
+      { label: "العمولة", value: "10%" },
+    ],
+    instructions: "⚠️ التحويل يجب أن يكون عبر خيار التحويل اليدوي فقط! أي طريقة أخرى قد تُرفض. استخدم الكود الأول، وإذا لم يعمل جرّب الثاني. بعد التحويل أدخل رقم العملية وتواصل واتساب للتأكيد.",
+    enabled: true,
+  },
   manual: {
     id: "manual",
     name: "تحويل يدوي",
