@@ -40,7 +40,7 @@ export default function AdminPage() {
   const [totpCode, setTotpCode] = useState("");
   const [show2FA, setShow2FA] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
-  const [tab, setTab] = useState<"dashboard" | "reports" | "providers" | "categories" | "services" | "orders" | "users" | "tickets" | "notifications" | "deposits">("dashboard");
+  const [tab, setTab] = useState<"dashboard" | "reports" | "providers" | "categories" | "services" | "orders" | "refunds" | "users" | "tickets" | "notifications" | "deposits">("dashboard");
 
   const [providers, setProviders] = useState<Provider[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -527,6 +527,7 @@ export default function AdminPage() {
     { k: "categories", l: "📁 الفئات", badge: 0 },
     { k: "services", l: "📦 الخدمات", badge: services.length },
     { k: "orders", l: "📋 الطلبات", badge: orders.length },
+    { k: "refunds", l: "💸 الاستردادات", badge: allOrders.filter(o => o.status === "cancelled" || o.status === "partial").length },
     { k: "users", l: "👥 المستخدمين", badge: users.length },
     { k: "tickets", l: "🎫 التذاكر", badge: stats.openTickets },
     { k: "deposits", l: "💳 الشحن", badge: adminDeposits.filter(d => d.status === "pending").length },
@@ -895,6 +896,163 @@ export default function AdminPage() {
               </tr>); })}</tbody>
           </table></div>
         )}
+
+        {/* ═══ REFUNDS ═══ */}
+        {!loading && tab === "refunds" && (() => {
+          const refundOrders = orders.filter(o => o.status === "cancelled" || o.status === "partial");
+          const cancelledOrders = refundOrders.filter(o => o.status === "cancelled");
+          const partialOrders = refundOrders.filter(o => o.status === "partial");
+          
+          // Calculate refund amounts
+          const refundDetails = refundOrders.map(o => {
+            const svc = (o as any).service;
+            const usr = (o as any).profile;
+            const pricePerUnit = o.quantity > 0 ? o.price / o.quantity : 0;
+            const delivered = o.quantity - (o.remains || 0);
+            const costOfDelivered = pricePerUnit * delivered;
+            const refundAmount = o.status === "cancelled" ? o.price : (pricePerUnit * (o.remains || 0));
+            
+            // Provider cost (original cost before markup)
+            const providerRate = svc?.price_per_1000 || 0;
+            // We don't have provider cost saved, so estimate based on service
+            
+            return {
+              ...o,
+              serviceName: svc?.name || "—",
+              providerName: svc?.provider?.name || "—",
+              username: usr?.username || o.user_id?.slice(0, 8) || "—",
+              pricePerUnit,
+              delivered,
+              refundAmount,
+              costOfDelivered,
+            };
+          });
+
+          const totalRefunded = refundDetails.reduce((sum, o) => sum + o.refundAmount, 0);
+          const totalCancelledAmount = refundDetails.filter(o => o.status === "cancelled").reduce((sum, o) => sum + o.refundAmount, 0);
+          const totalPartialAmount = refundDetails.filter(o => o.status === "partial").reduce((sum, o) => sum + o.refundAmount, 0);
+          const totalOriginalAmount = refundDetails.reduce((sum, o) => sum + o.price, 0);
+
+          return (
+            <div className="animate-fade-in">
+              <h2 className="text-lg font-bold text-gray-300 mb-4">💸 الاستردادات والإلغاءات</h2>
+              
+              {/* Stats Cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+                {[
+                  { label: "إجمالي الاستردادات", value: `$${totalRefunded.toFixed(4)}`, icon: "💸", color: "#ef4444" },
+                  { label: "طلبات ملغية", value: String(cancelledOrders.length), icon: "❌", color: "#ef4444", sub: `$${totalCancelledAmount.toFixed(4)}` },
+                  { label: "طلبات جزئية", value: String(partialOrders.length), icon: "⚠️", color: "#f59e0b", sub: `$${totalPartialAmount.toFixed(4)}` },
+                  { label: "المبلغ الأصلي", value: `$${totalOriginalAmount.toFixed(4)}`, icon: "💰", color: "#6b7280" },
+                  { label: "صافي الخسارة", value: `$${(totalOriginalAmount - totalRefunded).toFixed(4)}`, icon: "📉", color: totalOriginalAmount > totalRefunded ? "#10b981" : "#ef4444" },
+                ].map((s, i) => (
+                  <div key={i} className="card-dark p-3">
+                    <div className="flex items-center justify-between mb-1"><span className="text-gray-500 text-xs">{s.label}</span><span className="text-sm">{s.icon}</span></div>
+                    <div className="font-display text-lg font-900" style={{ color: s.color }}>{s.value}</div>
+                    {(s as any).sub && <div className="text-gray-600 text-xs mt-0.5">{(s as any).sub}</div>}
+                  </div>
+                ))}
+              </div>
+
+              {/* Filter */}
+              <div className="flex gap-2 mb-4">
+                {[
+                  { key: "all", label: `الكل (${refundOrders.length})`, color: A },
+                  { key: "cancelled", label: `ملغي (${cancelledOrders.length})`, color: "#ef4444" },
+                  { key: "partial", label: `جزئي (${partialOrders.length})`, color: "#f59e0b" },
+                ].map(f => (
+                  <button key={f.key} className="px-3 py-1.5 rounded-full text-xs font-bold" style={{ background: `${f.color}15`, color: f.color, border: `1px solid ${f.color}30` }}>
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Detailed Table */}
+              {refundDetails.length === 0 ? (
+                <div className="card-dark p-16 text-center">
+                  <div className="text-4xl mb-3">✅</div>
+                  <div className="text-gray-500">لا توجد استردادات أو إلغاءات</div>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-white/10 text-gray-400" style={{ background: `${A}08` }}>
+                        <th className="py-3 px-2 text-right font-bold">رقم الطلب</th>
+                        <th className="py-3 px-2 text-right font-bold">المستخدم</th>
+                        <th className="py-3 px-2 text-right font-bold">الخدمة</th>
+                        <th className="py-3 px-2 text-right font-bold">المزوّد</th>
+                        <th className="py-3 px-2 text-right font-bold">API ID</th>
+                        <th className="py-3 px-2 text-right font-bold">المبلغ الأصلي</th>
+                        <th className="py-3 px-2 text-right font-bold">الكمية</th>
+                        <th className="py-3 px-2 text-right font-bold">تم التسليم</th>
+                        <th className="py-3 px-2 text-right font-bold">المتبقي</th>
+                        <th className="py-3 px-2 text-right font-bold">سعر الوحدة</th>
+                        <th className="py-3 px-2 text-right font-bold" style={{ color: "#ef4444" }}>مبلغ الاسترداد</th>
+                        <th className="py-3 px-2 text-right font-bold">الحالة</th>
+                        <th className="py-3 px-2 text-right font-bold">الرابط</th>
+                        <th className="py-3 px-2 text-right font-bold">التاريخ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {refundDetails.map(o => {
+                        const isCancelled = o.status === "cancelled";
+                        const stColor = isCancelled ? "#ef4444" : "#f59e0b";
+                        const stLabel = isCancelled ? "ملغي" : "جزئي";
+                        return (
+                          <tr key={o.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                            <td className="py-2.5 px-2 font-bold text-white font-mono">#{(o as any).order_number || o.api_order_id}</td>
+                            <td className="py-2.5 px-2 text-gray-300">{o.username}</td>
+                            <td className="py-2.5 px-2 text-gray-400 max-w-[180px] truncate" title={o.serviceName}>{o.serviceName}</td>
+                            <td className="py-2.5 px-2 text-gray-500">{o.providerName}</td>
+                            <td className="py-2.5 px-2 text-gray-500 font-mono">{o.api_order_id}</td>
+                            <td className="py-2.5 px-2 text-gray-300 font-bold">${o.price.toFixed(4)}</td>
+                            <td className="py-2.5 px-2 text-white">{o.quantity.toLocaleString()}</td>
+                            <td className="py-2.5 px-2" style={{ color: "#10b981" }}>{o.delivered.toLocaleString()}</td>
+                            <td className="py-2.5 px-2 font-bold" style={{ color: o.remains > 0 ? "#f59e0b" : "#555" }}>{(o.remains || 0).toLocaleString()}</td>
+                            <td className="py-2.5 px-2 text-gray-400">${o.pricePerUnit.toFixed(6)}</td>
+                            <td className="py-2.5 px-2 font-bold" style={{ color: "#ef4444" }}>${o.refundAmount.toFixed(4)}</td>
+                            <td className="py-2.5 px-2">
+                              <span className="px-2 py-0.5 rounded-md text-xs font-bold" style={{ background: `${stColor}15`, color: stColor }}>{stLabel}</span>
+                            </td>
+                            <td className="py-2.5 px-2 max-w-[120px]">
+                              <a href={o.link} target="_blank" rel="noopener" className="text-blue-400 hover:underline truncate block text-[10px]" dir="ltr">{o.link?.replace(/https?:\/\//, "").slice(0, 30)}...</a>
+                            </td>
+                            <td className="py-2.5 px-2 text-gray-500 text-[10px] whitespace-nowrap">{formatDate(o.created_at!)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    {/* Totals Row */}
+                    <tfoot>
+                      <tr className="border-t-2 border-white/10" style={{ background: `${A}05` }}>
+                        <td className="py-3 px-2 font-bold text-white" colSpan={5}>الإجمالي ({refundDetails.length} طلب)</td>
+                        <td className="py-3 px-2 font-bold text-gray-300">${totalOriginalAmount.toFixed(4)}</td>
+                        <td className="py-3 px-2 font-bold text-white">{refundDetails.reduce((s, o) => s + o.quantity, 0).toLocaleString()}</td>
+                        <td className="py-3 px-2 font-bold" style={{ color: "#10b981" }}>{refundDetails.reduce((s, o) => s + o.delivered, 0).toLocaleString()}</td>
+                        <td className="py-3 px-2 font-bold" style={{ color: "#f59e0b" }}>{refundDetails.reduce((s, o) => s + (o.remains || 0), 0).toLocaleString()}</td>
+                        <td className="py-3 px-2"></td>
+                        <td className="py-3 px-2 font-bold text-lg" style={{ color: "#ef4444" }}>${totalRefunded.toFixed(4)}</td>
+                        <td className="py-3 px-2" colSpan={3}></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* Explanation Box */}
+              <div className="card-dark p-5 mt-6">
+                <h3 className="text-sm font-bold text-gray-400 mb-3">📊 شرح الحسابات</h3>
+                <div className="space-y-2 text-xs text-gray-500">
+                  <div className="flex items-start gap-2"><span className="text-red-400 shrink-0">❌ ملغي:</span><span>الطلب ألغي بالكامل — الاسترداد = المبلغ الأصلي كاملاً</span></div>
+                  <div className="flex items-start gap-2"><span className="text-yellow-400 shrink-0">⚠️ جزئي:</span><span>تم تسليم جزء من الطلب — الاسترداد = (سعر الوحدة × المتبقي غير المُسلّم)</span></div>
+                  <div className="flex items-start gap-2"><span className="text-green-400 shrink-0">📉 صافي الخسارة:</span><span>= المبلغ الأصلي − مبلغ الاسترداد (المبلغ الذي دُفع فعلياً للمزوّد ولم يُسترد)</span></div>
+                  <div className="flex items-start gap-2"><span className="text-blue-400 shrink-0">💡 ملاحظة:</span><span>تحقق من أن مبلغ الاسترداد أُضيف فعلاً لرصيد المستخدم. الاسترداد يتم تلقائياً عند تحديث حالة الطلب من Cron أو يدوياً.</span></div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ═══ USERS ═══ */}
         {!loading && tab === "users" && (
