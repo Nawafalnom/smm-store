@@ -242,12 +242,11 @@ export const PAYMENT_METHODS = {
     name: "تحويل يدوي",
     nameEn: "Manual Transfer",
     icon: "🏦",
-    description: "تحويل بنكي أو واتساب — يتم التأكيد خلال 1-24 ساعة",
+    description: "تواصل معنا على واتساب لترتيب التحويل",
     minAmount: 1,
-    details: [
-      { label: "واتساب", value: "+966571373367" },
-    ],
-    instructions: "أرسل المبلغ ثم أدخل رقم العملية أو أرسل لنا إيصال الدفع على واتساب",
+    whatsappOnly: true,
+    details: [],
+    instructions: "",
     enabled: true,
   },
 };

@@ -781,6 +781,24 @@ export default function DashboardPage() {
               {depositMethod && (() => {
                 const method = PAYMENT_METHODS[depositMethod as keyof typeof PAYMENT_METHODS];
                 if (!method) return null;
+
+                // WhatsApp-only method (manual transfer)
+                if ((method as any).whatsappOnly) {
+                  return (
+                    <div className="space-y-4 animate-fade-in">
+                      <div className="card-dark p-8 text-center">
+                        <div className="text-5xl mb-4">💬</div>
+                        <h3 className="text-white font-bold text-lg mb-2">تواصل معنا على واتساب</h3>
+                        <p className="text-gray-400 text-sm mb-5">أرسل لنا المبلغ المطلوب وسنرتّب لك طريقة التحويل المناسبة</p>
+                        <a href={`https://wa.me/${STORE.whatsapp.replace(/[^0-9]/g, "")}?text=${encodeURIComponent("مرحباً، أريد شحن رصيد عبر تحويل يدوي")}`}
+                          target="_blank" className="inline-flex items-center gap-2 px-8 py-4 rounded-xl text-lg font-bold text-white bg-green-600 hover:bg-green-500 transition">
+                          💬 فتح واتساب
+                        </a>
+                      </div>
+                    </div>
+                  );
+                }
+
                 return (
                   <div className="space-y-5 animate-fade-in">
                     {/* Payment Info Box */}
@@ -791,7 +809,7 @@ export default function DashboardPage() {
                       {(method as any).qrCode && (
                         <div className="text-center mb-4">
                           <img src={(method as any).qrCode} alt="QR Code" className="mx-auto rounded-xl" style={{ background: "white", padding: "8px", maxWidth: "200px" }} />
-                          <p className="text-gray-500 text-[10px] mt-2">امسح الكود بتطبيق Binance</p>
+                          <p className="text-gray-500 text-[10px] mt-2">امسح الكود للدفع</p>
                         </div>
                       )}
 
@@ -807,7 +825,7 @@ export default function DashboardPage() {
                           </div>
                         ))}
                       </div>
-                      <p className="text-gray-500 text-xs mt-3 leading-relaxed">💡 {method.instructions}</p>
+                      {method.instructions && <p className="text-gray-500 text-xs mt-3 leading-relaxed whitespace-pre-line">💡 {method.instructions}</p>}
                     </div>
 
                     {/* Amount */}
