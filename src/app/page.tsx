@@ -34,7 +34,7 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-3">
             <Link href="/auth" className="text-sm text-gray-400 hover:text-white transition font-bold">تسجيل الدخول</Link>
-            <Link href="/auth" className="px-5 py-2 rounded-xl font-bold text-sm text-white" style={{ background: A }}>
+            <Link href="/auth?mode=register" className="px-5 py-2 rounded-xl font-bold text-sm text-white" style={{ background: A }}>
               إنشاء حساب
             </Link>
           </div>
@@ -61,7 +61,7 @@ export default function LandingPage() {
             نقدم لك أسرع وأرخص خدمات التسويق الإلكتروني. زيادة متابعين، لايكات، ومشاهدات لجميع منصات التواصل الاجتماعي بجودة عالية وضمان حقيقي.
           </p>
           <div className="flex justify-center gap-4 mb-16 animate-slide-up delay-3 opacity-0">
-            <Link href="/auth" className="px-8 py-3.5 rounded-xl font-bold text-lg text-white transition-all hover:scale-105"
+            <Link href="/auth?mode=register" className="px-8 py-3.5 rounded-xl font-bold text-lg text-white transition-all hover:scale-105"
               style={{ background: A, boxShadow: `0 0 30px ${A}40` }}>
               سجل الآن مجاناً ←
             </Link>
@@ -183,7 +183,7 @@ export default function LandingPage() {
         <div className="max-w-4xl mx-auto px-4 py-20 text-center">
           <h2 className="font-display text-3xl font-900 text-white mb-4">جاهز تبدأ؟</h2>
           <p className="text-gray-400 mb-8 text-lg">سجّل مجاناً وابدأ بتعزيز تواجدك الرقمي اليوم</p>
-          <Link href="/auth" className="inline-block px-10 py-4 rounded-xl font-bold text-lg text-white transition-all hover:scale-105"
+          <Link href="/auth?mode=register" className="inline-block px-10 py-4 rounded-xl font-bold text-lg text-white transition-all hover:scale-105"
             style={{ background: A, boxShadow: `0 0 30px ${A}40` }}>
             سجل الآن مجاناً ←
           </Link>

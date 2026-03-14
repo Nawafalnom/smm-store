@@ -19,17 +19,21 @@ export default function AuthPage() {
     otp: "",
   });
 
-  // Capture referral code from URL
+  // Capture referral code and mode from URL
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const ref = params.get("ref");
+    const urlMode = params.get("mode");
     if (ref) {
       setRefCode(ref);
       setMode("register");
-      // Clean URL
-      window.history.replaceState({}, "", "/auth");
     }
+    if (urlMode === "register") {
+      setMode("register");
+    }
+    // Clean URL
+    window.history.replaceState({}, "", "/auth");
   }, []);
 
   async function handleSubmit() {
