@@ -357,7 +357,7 @@ export default function AdminPage() {
   async function saveProv() { try { if (editingProv?.id) await supabase.from("providers").update(provForm).eq("id", editingProv.id); else await supabase.from("providers").insert(provForm); toast.success("تم"); setShowProvForm(false); setEditingProv(null); setProvForm({ name: "", api_url: "", api_key: "", is_active: true, sort_order: 0 }); fetchAll(); } catch { toast.error("خطأ"); } }
   async function deleteProv(id: string) { if (!confirm("حذف؟")) return; await supabase.from("providers").delete().eq("id", id); fetchAll(); }
   async function saveCat() { try { if (editingCat?.id) await supabase.from("categories").update(catForm).eq("id", editingCat.id); else await supabase.from("categories").insert(catForm); toast.success("تم"); setShowCatForm(false); setEditingCat(null); setCatForm({ name: "", sort_order: 0, is_active: true }); fetchAll(); } catch { toast.error("خطأ"); } }
-  async function deleteCat(id: string) { if (!confirm("حذف؟")) return; await supabase.from("categories").delete().eq("id", id); fetchAll(); }
+  async function deleteCat(id: string) { if (!confirm("حذف الفئة وجميع خدماتها؟")) return; await supabase.from("services").delete().eq("category_id", id); await supabase.from("categories").delete().eq("id", id); toast.success("تم حذف الفئة وخدماتها"); fetchAll(); }
   async function saveSvc() { try { const { id, created_at, provider, category, ...cleanForm } = svcForm as any; if (editingSvc?.id) await supabase.from("services").update(cleanForm).eq("id", editingSvc.id); else await supabase.from("services").insert(cleanForm); toast.success("تم"); setShowSvcForm(false); setEditingSvc(null); fetchAll(); } catch { toast.error("خطأ"); } }
   async function deleteSvc(id: string) { if (!confirm("حذف؟")) return; await supabase.from("services").delete().eq("id", id); fetchAll(); }
 
@@ -797,15 +797,22 @@ export default function AdminPage() {
               <button onClick={() => { setEditingCat(null); setCatForm({ name: "", sort_order: 0, is_active: true }); setShowCatForm(true); }} className="px-4 py-2 rounded-xl text-sm font-bold text-white" style={{ background: A }}>+ فئة</button>
             </div>
           </div>
-          <div className="space-y-2">{categories.map(c => (
+          <div className="space-y-2">{categories.map(c => {
+            const svcCount = services.filter(s => s.category_id === c.id).length;
+            return (
             <div key={c.id} className="card-dark p-4 flex items-center justify-between">
-              <div><span className="text-white font-bold">{c.name}</span> <span className={`mr-2 text-xs px-2 py-0.5 rounded ${c.is_active ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>{c.is_active ? "✓" : "✗"}</span></div>
+              <div>
+                <span className="text-white font-bold">{c.name}</span>
+                <span className="mr-2 text-xs text-gray-500">({svcCount} خدمة)</span>
+                <span className={`mr-2 text-xs px-2 py-0.5 rounded ${c.is_active ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>{c.is_active ? "✓" : "✗"}</span>
+              </div>
               <div className="flex gap-2">
                 <button onClick={() => { setEditingCat(c); setCatForm({ ...c }); setShowCatForm(true); }} className="text-xs px-3 py-1.5 rounded-lg bg-blue-500/15 text-blue-400">تعديل</button>
-                <button onClick={() => deleteCat(c.id!)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/15 text-red-400">حذف</button>
+                <button onClick={() => deleteCat(c.id!)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/15 text-red-400">حذف ({svcCount})</button>
               </div>
             </div>
-          ))}</div>
+            );
+          })}</div>
         </>)}
 
         {/* ═══ SERVICES ═══ */}

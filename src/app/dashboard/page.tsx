@@ -801,28 +801,56 @@ export default function DashboardPage() {
           )}
 
           {/* ═══ SERVICES LIST ═══ */}
-          {activeView === "services" && (
-            <div>
-              <h2 className="text-lg font-bold text-white mb-4">جميع الخدمات ({services.length})</h2>
-              <div className="overflow-x-auto"><table className="w-full text-xs">
-                <thead><tr className="border-b border-white/5 text-gray-500">
-                  <th className="py-2 px-2 text-right">ID</th><th className="py-2 px-2 text-right">الخدمة</th>
-                  <th className="py-2 px-2 text-right">$/1K</th><th className="py-2 px-2 text-right">أقل</th>
-                  <th className="py-2 px-2 text-right">أعلى</th><th className="py-2 px-2 text-right">السرعة</th>
-                </tr></thead>
-                <tbody>{services.map((s) => (
-                  <tr key={s.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                    <td className="py-2 px-2 text-gray-500 font-mono">{s.site_id || s.api_service_id}</td>
-                    <td className="py-2 px-2 text-gray-300">{s.name}</td>
-                    <td className="py-2 px-2 font-bold" style={{ color: A }}>${s.price_per_1000}</td>
-                    <td className="py-2 px-2 text-gray-400">{s.min_quantity.toLocaleString()}</td>
-                    <td className="py-2 px-2 text-gray-400">{s.max_quantity.toLocaleString()}</td>
-                    <td className="py-2 px-2 text-gray-400">{s.speed}</td>
-                  </tr>
-                ))}</tbody>
-              </table></div>
-            </div>
-          )}
+          {activeView === "services" && (() => {
+            // Group services by category
+            const grouped: Record<string, { category: Category; services: Service[] }> = {};
+            services.forEach(s => {
+              const cat = (s as any).category;
+              const catId = s.category_id;
+              if (!grouped[catId]) grouped[catId] = { category: cat || { name: "عام" } as any, services: [] };
+              grouped[catId].services.push(s);
+            });
+
+            return (
+              <div>
+                <h2 className="text-lg font-bold text-white mb-4">جميع الخدمات ({services.length})</h2>
+                <div className="space-y-4">
+                  {Object.values(grouped).map((group, gi) => (
+                    <div key={gi} className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+                      {/* Category Header */}
+                      <div className="px-4 py-3 flex items-center justify-between" style={{ background: `${A}15` }}>
+                        <span className="text-white font-bold text-sm">{group.category?.name || "عام"}</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: `${A}25`, color: A }}>{group.services.length} خدمة</span>
+                      </div>
+                      {/* Services Table */}
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead><tr className="border-b border-white/5 text-gray-600">
+                            <th className="py-2 px-3 text-right">ID</th>
+                            <th className="py-2 px-3 text-right">الخدمة</th>
+                            <th className="py-2 px-3 text-right">$/1K</th>
+                            <th className="py-2 px-3 text-right">أقل</th>
+                            <th className="py-2 px-3 text-right">أعلى</th>
+                            <th className="py-2 px-3 text-right">السرعة</th>
+                          </tr></thead>
+                          <tbody>{group.services.map((s) => (
+                            <tr key={s.id} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                              <td className="py-2.5 px-3 font-mono font-bold" style={{ color: A }}>{s.site_id || s.api_service_id}</td>
+                              <td className="py-2.5 px-3 text-gray-300 text-sm">{s.name}</td>
+                              <td className="py-2.5 px-3 font-bold text-green-400">${s.price_per_1000}</td>
+                              <td className="py-2.5 px-3 text-gray-400">{s.min_quantity.toLocaleString()}</td>
+                              <td className="py-2.5 px-3 text-gray-400">{s.max_quantity.toLocaleString()}</td>
+                              <td className="py-2.5 px-3 text-gray-500">{s.speed}</td>
+                            </tr>
+                          ))}</tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ═══ ADD FUNDS ═══ */}
           {activeView === "add_funds" && (
