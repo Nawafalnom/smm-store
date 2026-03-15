@@ -46,7 +46,7 @@ export default function RootLayout({
             __html: `
               (function () {
                 var options = {
-                  whatsapp: "966571373367",
+                  whatsapp: "16723671427",
                   call_to_action: "تواصل معنا",
                   position: "left",
                 };

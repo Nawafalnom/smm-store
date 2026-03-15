@@ -113,7 +113,7 @@ export interface Order {
 export const STORE = {
   name: "SMMSYRIA",
   nameAr: "SMMSYRIA",
-  whatsapp: "+966571373367",
+  whatsapp: "+16723671427",
   pixel: "",
   color: "#ff4500",
   colorRgb: "255, 69, 0",
