@@ -48,14 +48,16 @@ const SERVICE_TYPES: [RegExp, string][] = [
   [/\bmembers?\b/i, "أعضاء"],
   [/\bplays?\b|\bstreams?\b/i, "تشغيلات"],
   [/\bmonthly\s*listeners?\b/i, "مستمعين شهريين"],
-  [/\bwatch\s*hours?\b|\bwatch\s*time\b/i, "ساعات مشاهدة"],
+  [/\bwatch\s*hours?\b|\bwatch\s*time\b|\bwatchtime\b/i, "ساعات مشاهدة"],
   [/\bstory\s*views?\b|\bstories\s*views?\b/i, "مشاهدات ستوري"],
   [/\bvideo\s*(?:\/|&|and)\s*reels?\s*views?\b/i, "مشاهدات فيديو/ريلز"],
   [/\breel\s*(?:views?|likes?|plays?)\b|\breels?\b/i, "ريلز"],
   [/\bshorts?\s*(?:views?|likes?)?\b/i, "شورتس"],
   [/\bigtv\s*views?\b/i, "مشاهدات IGTV"],
-  [/\blive\s*(?:viewers?|views?|stream)\b/i, "مشاهدين بث مباشر"],
+  [/\blive\s*(?:viewers?|views?|stream)\b|\blivestream\b/i, "مشاهدين بث مباشر"],
   [/\bpost\s*views?\b/i, "مشاهدات المنشور"],
+  [/\bretention\b/i, "مشاهدات مع بقاء"],
+  [/\bcomment\s*reactions?\b/i, "تفاعلات التعليقات"],
   [/\bsaves?\b|\bbookmarks?\b/i, "حفظ"],
   [/\bimpressions?\b/i, "مرات ظهور"],
   [/\bclicks?\b/i, "نقرات"],
@@ -93,6 +95,8 @@ const SCOPE_TAGS: [RegExp, string][] = [
   [/\bpage\s*(?:only|likes?)\b|\bfan\s*page\b/i, "صفحة فقط"],
   [/\bprofile\s*only\b/i, "بروفايل فقط"],
   [/\bpage\s*\/\s*profile\b|\bprofile\s*\/\s*page\b/i, "صفحة + بروفايل"],
+  [/\ball\s*types?\b/i, "كل الأنواع"],
+  [/\ball\s*link\b/i, "كل الروابط"],
   [/\bgroup\b/i, "مجموعة"],
   [/\bchannel\b/i, "قناة"],
 ];
@@ -115,8 +119,45 @@ const ATTRIBUTES: AttrMatch[] = [
 
   // Drop quality
   { regex: /\bnon[\s-]*drop\b|\bno[\s-]*drop\b|\bnodrop\b/i, emoji: "💧", text: "بدون نقص", priority: 30 },
-  { regex: /\blow[\s-]*drop\b|\bmin(?:imal)?\s*drop\b/i, emoji: "💧", text: "نقص قليل", priority: 30 },
+  { regex: /\blow[\s-]*drop\b|\bmin(?:imal)?\s*drop\b|\bfew[\s-]*drop\b/i, emoji: "💧", text: "نقص قليل", priority: 30 },
   { regex: /\bstable\b/i, emoji: "💧", text: "مستقر", priority: 30 },
+
+  // ── ABBREVIATIONS (common in SMM panels) ──
+  // ND = Non Drop
+  { regex: /\[\s*ND\s*\]|\(\s*ND\s*\)|\bND\b(?!\w)/i, emoji: "💧", text: "بدون نقص", priority: 30 },
+  // NR = No Refill
+  { regex: /\[\s*NR\s*\]|\(\s*NR\s*\)|\bNR\b(?!\w)/i, emoji: "⛔", text: "بدون إعادة تعبئة", priority: 50 },
+  // R + number = Refill X days (R30, R60, R90, R365)
+  { regex: /\[\s*R(\d+)\s*\]|\(\s*R(\d+)\s*\)|\bR(\d+)\b(?!\w)/i, emoji: "♻️", text: (m) => `${m[1] || m[2] || m[3]} يوم ضمان`, priority: 50 },
+  // NRF = No Refill
+  { regex: /\bNRF\b/i, emoji: "⛔", text: "بدون إعادة تعبئة", priority: 50 },
+  // HQ = High Quality
+  { regex: /\bHQ\b(?!\w)/i, emoji: "⭐", text: "جودة عالية", priority: 40 },
+  // LQ = Low Quality
+  { regex: /\bLQ\b(?!\w)/i, emoji: "📉", text: "جودة منخفضة", priority: 40 },
+  // MQ = Medium/Mixed Quality
+  { regex: /\bMQ\b(?!\w)/i, emoji: "📊", text: "جودة متوسطة", priority: 40 },
+  // AR = Auto Refill
+  { regex: /\bAR\b(?!\w)(?!ab)/i, emoji: "♻️", text: "تعويض تلقائي", priority: 50 },
+
+  // Speed abbreviations: 1M/D = 1 million per day, 50k/D, 10k+/D, 1-10k/D
+  { regex: /(\d+[\.,]?\d*)\s*[mM]\s*\/\s*[dD]\b/i, emoji: "⚡", text: (m) => `السرعة ${m[1]} مليون/اليوم`, priority: 20 },
+  { regex: /(\d+[\.,]?\d*)\s*[kK]\+?\s*\/\s*[dD]\b/i, emoji: "⚡", text: (m) => `السرعة ${m[1]}ك/اليوم`, priority: 20 },
+  { regex: /(\d+[\.,]?\d*)\s*-\s*(\d+[\.,]?\d*)\s*[kK]\s*\/\s*[dD]\b/i, emoji: "⚡", text: (m) => `السرعة ${m[1]}-${m[2]}ك/اليوم`, priority: 20 },
+
+  // Quality types from provider
+  { regex: /\bhide\s*page\s*quality\b/i, emoji: "🔒", text: "جودة صفحات مخفية", priority: 40 },
+  { regex: /\bpage\s*quality\b/i, emoji: "📄", text: "جودة صفحات", priority: 40 },
+  { regex: /\bdp\s*page\s*quality\b/i, emoji: "📸", text: "جودة صفحات بصور", priority: 40 },
+  { regex: /\breal\s*quality\b/i, emoji: "🔥", text: "جودة حقيقية", priority: 40 },
+  { regex: /\bmixed\s*quality\b/i, emoji: "📊", text: "جودة مختلطة", priority: 40 },
+
+  // Sv1, Sv2, Sv3 = Server 1, 2, 3
+  { regex: /\bSv\s*(\d+)\b/i, emoji: "🖥️", text: (m) => `سيرفر ${m[1]}`, priority: 55 },
+
+  // All Types / All Link scope
+  { regex: /\ball\s*types?\b/i, emoji: "📋", text: "كل الأنواع", priority: 35 },
+  { regex: /\ball\s*link\b/i, emoji: "🔗", text: "كل الروابط", priority: 35 },
 
   // Account quality
   { regex: /\breal\s*(?:&|and|\+)?\s*active\b/i, emoji: "🔥", text: "حسابات حقيقية + نشطة", priority: 40 },
@@ -205,9 +246,37 @@ export function translateToArabic(text: string): string {
     "recommended": "⭐موصى به", "hot": "🔥رائج", "provider": "", "profile data": "",
     "working": "", "server 1": "سيرفر 1", "server 2": "سيرفر 2", "server 3": "سيرفر 3",
     "server 4": "سيرفر 4", "update": "محدّث", "old": "", "test": "تجريبي",
+    "sv1": "سيرفر 1", "sv2": "سيرفر 2", "sv3": "سيرفر 3", "sv4": "سيرفر 4",
+    "sv1,2,3": "سيرفر 1,2,3", "sv 1,2,3": "سيرفر 1,2,3",
+    "all types": "📋 كل الأنواع", "all link": "🔗 كل الروابط",
+    "page quality": "📄 جودة صفحات", "hide page quality": "🔒 جودة صفحات مخفية",
+    "dp page quality": "📸 جودة صفحات بصور", "real quality": "🔥 جودة حقيقية",
+    "mixed quality": "📊 جودة مختلطة", "high quality": "⭐ جودة عالية",
+    "non drop": "💧 بدون نقص", "few drop": "💧 نقص قليل", "no drop": "💧 بدون نقص",
+    "nd": "💧 بدون نقص", "nr": "⛔ بدون إعادة تعبئة", "nrf": "⛔ بدون إعادة تعبئة",
+    "hq": "⭐ جودة عالية", "lq": "📉 جودة منخفضة",
+    "real": "🔥 حقيقي", "real + active": "🔥 حقيقي + نشط",
+    "organic": "🌱 عضوي", "premium": "⭐ مميز", "vip": "👑 VIP",
+    "stable": "💧 مستقر", "lifetime": "♻️ ضمان مدى الحياة",
   };
   input = input.replace(/\[\s*([^\]]+)\s*\]/g, (_, content) => {
     const lower = content.trim().toLowerCase();
+    // Handle R+number pattern: [R30], [R60], [R90], [R365]
+    const rMatch = lower.match(/^r\s*(\d+)$/);
+    if (rMatch) { bracketTags.push(`♻️ ${rMatch[1]} يوم ضمان`); return ""; }
+    // Handle speed patterns: [1M/D], [50k/D], [5-10k/D]
+    const speedMatch = lower.match(/^(\d+[\.,]?\d*)\s*([mk])\+?\s*\/\s*d$/);
+    if (speedMatch) { 
+      const unit = speedMatch[2] === "m" ? "مليون" : "ك";
+      bracketTags.push(`⚡ السرعة ${speedMatch[1]}${unit}/اليوم`); 
+      return ""; 
+    }
+    const speedRangeMatch = lower.match(/^(\d+)-(\d+)\s*([mk])\s*\/\s*d$/);
+    if (speedRangeMatch) {
+      const unit = speedRangeMatch[3] === "m" ? "مليون" : "ك";
+      bracketTags.push(`⚡ السرعة ${speedRangeMatch[1]}-${speedRangeMatch[2]}${unit}/اليوم`);
+      return "";
+    }
     // Check known bracket tags
     for (const [key, val] of Object.entries(BRACKET_MAP)) {
       if (lower === key || lower.includes(key)) {
@@ -480,6 +549,35 @@ const CATEGORY_MAP: Record<string, string> = {
   "youtube premiere": "العرض الأول يوتيوب",
   "telegram auto views": "مشاهدات تلقائية تيليجرام",
   "telegram post views": "مشاهدات منشورات تيليجرام",
+  // Provider-specific FB categories
+  "fb follower": "متابعين فيسبوك",
+  "fb follower [ all types ]": "متابعين فيسبوك (كل الأنواع)",
+  "fb followers": "متابعين فيسبوك",
+  "fb page likes & group": "إعجابات صفحة ومجموعة فيسبوك",
+  "fb page likes": "إعجابات صفحة فيسبوك",
+  "fb views & likes": "مشاهدات ولايكات فيسبوك",
+  "fb views": "مشاهدات فيسبوك",
+  "fb likes": "لايكات فيسبوك",
+  "fb reaction": "تفاعلات فيسبوك",
+  "fb comment": "تعليقات فيسبوك",
+  "fb comments": "تعليقات فيسبوك",
+  "fb share & story": "مشاركات وستوري فيسبوك",
+  "fb share": "مشاركات فيسبوك",
+  "fb story": "ستوري فيسبوك",
+  "fb watchtime": "ساعات مشاهدة فيسبوك",
+  "fb watch time": "ساعات مشاهدة فيسبوك",
+  "fb retention": "مشاهدات مع بقاء فيسبوك",
+  "fb livestream": "بث مباشر فيسبوك",
+  "fb live": "بث مباشر فيسبوك",
+  "fb comment reaction": "تفاعلات التعليقات فيسبوك",
+  "fb group members": "أعضاء مجموعة فيسبوك",
+  "fb page followers": "متابعين صفحة فيسبوك",
+  // TikTok categories
+  "tiktok services": "خدمات تيك توك",
+  "tiktok service": "خدمات تيك توك",
+  // Special
+  "special for someone": "خدمات مميزة خاصة 😍",
+  "special services": "خدمات مميزة",
 };
 
 export function translateCategory(name: string): string {
