@@ -25,6 +25,12 @@ export default function RootLayout({
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#0a0e17" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="SMMSYRIA Admin" />
+        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
       </head>
       <body className="bg-dark-900 text-gray-200 font-arabic min-h-screen">
         <Toaster
@@ -49,6 +55,17 @@ export default function RootLayout({
                 s.onload = function () { WhWidgetSendButton.init(host, proto, options); };
                 var x = document.getElementsByTagName('script')[0]; x.parentNode.insertBefore(s, x);
               })();
+            `,
+          }}
+        />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                  navigator.serviceWorker.register('/sw.js');
+                });
+              }
             `,
           }}
         />
