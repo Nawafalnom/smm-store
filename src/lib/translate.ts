@@ -242,6 +242,21 @@ export function translateToArabic(text: string): string {
     .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&apos;/g, "'");
 
+  // Strip technical info that shouldn't be in the translated name
+  input = input
+    .replace(/\bMax\s*[\d,.]+\s*[KkMm]?\b/gi, "")          // Max 100K, Max 1M
+    .replace(/\bMin\s*[\d,.]+\s*[KkMm]?\b/gi, "")          // Min 10, Min 100
+    .replace(/-?\s*\$[\d,.]+/g, "")                          // - $0.342, $0.15
+    .replace(/\bRate\s*[:=]\s*[\d,.]+/gi, "")                // Rate: 0.15
+    .replace(/\bAverage\s*time[^|[\]]*$/gi, "")              // Average time...
+    .replace(/\bStart\s*time[^|[\]]*$/gi, "")                // Start time...
+    .replace(/\b\d+\s*hours?\s*\d+\s*minutes?\b/gi, "")     // 4 hours 32 minutes
+    .replace(/\b\d+\s*minutes?\b/gi, "")                     // 27 minutes
+    .replace(/\bCancel\s*button\b/gi, "")                    // Cancel button
+    .replace(/\bRefill\s*button\b/gi, "")                    // Refill button
+    .replace(/-\s*$/g, "")                                   // trailing dash
+    .replace(/\s+/g, " ").trim();
+
   // Strip provider emojis from inside content to not break regex matching
   const stripEmoji = (s: string) => {
     return s.replace(/[\u2600-\u27BF\uFE00-\uFE0F]/g, "")

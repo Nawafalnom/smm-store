@@ -494,7 +494,7 @@ export default function DashboardPage() {
                       className="admin-input" disabled={!selectedCatId}>
                       <option value="" disabled hidden>الخدمة</option>
                       {filteredServices.map((s) => (
-                        <option key={s.id} value={s.id}>{(s.site_id || s.api_service_id)} - {s.name} - ${s.price_per_1000} لكل 1000</option>
+                        <option key={s.id} value={s.id}>{(s.site_id || s.api_service_id)} - {s.name} | ${s.price_per_1000}</option>
                       ))}
                     </select>
                   </div>

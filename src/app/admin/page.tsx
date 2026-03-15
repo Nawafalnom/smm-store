@@ -263,19 +263,25 @@ export default function AdminPage() {
 
       // Ensure categories exist (with translation if enabled)
       for (const origName of catNames) {
-        // Check if category already exists by name_en or name
+        // Check if category already exists by EXACT name_en match
         const { data: byEn } = await supabase.from("categories").select("id").eq("name_en", origName).single();
         if (byEn) continue;
-        const { data: byName } = await supabase.from("categories").select("id").eq("name", origName).single();
-        if (byName) { await supabase.from("categories").update({ name_en: origName }).eq("id", byName.id); continue; }
 
         const translatedName = autoTranslate ? translateCategory(origName) : origName;
-        // Also check if translated name already exists
+
+        // Check if same translated name exists — if so, make it unique by appending context
+        let finalName = translatedName;
         if (autoTranslate && translatedName !== origName) {
-          const { data: byTr } = await supabase.from("categories").select("id").eq("name", translatedName).single();
-          if (byTr) { await supabase.from("categories").update({ name_en: origName }).eq("id", byTr.id); continue; }
+          const { data: byTr } = await supabase.from("categories").select("id, name_en").eq("name", translatedName).single();
+          if (byTr && byTr.name_en !== origName) {
+            // Different provider category with same Arabic translation — keep both distinct
+            // Extract distinguishing part from original name (e.g. "[Real]", "[Bot]", "Page", etc.)
+            const diff = origName.replace(/instagram|facebook|tiktok|youtube|twitter|telegram|snapchat|spotify|followers|likes|views|members|services/gi, "").replace(/\[\s*\]/g, "").trim();
+            if (diff) finalName = `${translatedName} (${diff})`;
+          }
         }
-        await supabase.from("categories").insert({ name: translatedName, name_en: origName, sort_order: 0, is_active: true });
+
+        await supabase.from("categories").insert({ name: finalName, name_en: origName, sort_order: 0, is_active: true });
       }
 
       // Build category ID map (by name_en for accurate matching)
