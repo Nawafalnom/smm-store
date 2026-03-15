@@ -127,6 +127,25 @@ export default function DashboardPage() {
 
   useEffect(() => { checkAuth(); }, []);
 
+  // Auto-refresh: update orders every 60 seconds + trigger cron
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(async () => {
+      // Trigger cron to update order statuses from providers
+      fetch("/api/cron/update-orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secret: "growence-cron-2024" }),
+      }).catch(() => {});
+      // Refresh user's orders after a short delay
+      setTimeout(() => {
+        fetchOrders(user.id);
+        fetchProfile(user.id);
+      }, 3000);
+    }, 60000); // every 60 seconds
+    return () => clearInterval(interval);
+  }, [user]);
+
   // Handle Binance Pay return
   useEffect(() => {
     if (typeof window === "undefined") return;
