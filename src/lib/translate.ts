@@ -239,6 +239,21 @@ export function translateToArabic(text: string): string {
     .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&apos;/g, "'");
 
+  // Strip provider emojis from inside content to not break regex matching
+  const stripEmoji = (s: string) => {
+    return s.replace(/[\u2600-\u27BF\uFE00-\uFE0F]/g, "")
+      .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, "")
+      .replace(/\s+/g, " ").trim();
+  };
+
+  // Convert pipe-separated format to bracket format: "Service | Tag1 | Tag2" → "Service [Tag1] [Tag2]"
+  if (input.includes("|") && !input.includes("[")) {
+    const parts = input.split("|").map(p => p.trim());
+    if (parts.length > 1) {
+      input = parts[0] + " " + parts.slice(1).map(p => `[${p}]`).join(" ");
+    }
+  }
+
   // Extract and translate bracket tags like [ Provider ], [ Cheapest ], [ NEW ], [ Profile Data ]
   const bracketTags: string[] = [];
   const BRACKET_MAP: Record<string, string> = {
@@ -258,38 +273,43 @@ export function translateToArabic(text: string): string {
     "real": "🔥 حقيقي", "real + active": "🔥 حقيقي + نشط",
     "organic": "🌱 عضوي", "premium": "⭐ مميز", "vip": "👑 VIP",
     "stable": "💧 مستقر", "lifetime": "♻️ ضمان مدى الحياة",
+    "instant": "⚡ فوري", "instant start": "⚡ فوري", "fast": "⚡ سريع",
+    "no refill": "⛔ بدون إعادة تعبئة", "no guarantee": "⛔ بدون ضمان",
+    "bot": "🤖 بوتات", "bot hidden": "🤖 بوتات مخفية",
   };
   input = input.replace(/\[\s*([^\]]+)\s*\]/g, (_, content) => {
-    const lower = content.trim().toLowerCase();
+    const cleaned = stripEmoji(content).trim();
+    const lower = cleaned.toLowerCase();
     // Handle R+number pattern: [R30], [R60], [R90], [R365]
     const rMatch = lower.match(/^r\s*(\d+)$/);
     if (rMatch) { bracketTags.push(`♻️ ${rMatch[1]} يوم ضمان`); return ""; }
-    // Handle speed patterns: [1M/D], [50k/D], [5-10k/D]
+    // Handle speed patterns: [1M/D], [50k/D], [50k+/D], [5-10k/D], [10-100k/D]
     const speedMatch = lower.match(/^(\d+[\.,]?\d*)\s*([mk])\+?\s*\/\s*d$/);
     if (speedMatch) { 
       const unit = speedMatch[2] === "m" ? "مليون" : "ك";
       bracketTags.push(`⚡ السرعة ${speedMatch[1]}${unit}/اليوم`); 
       return ""; 
     }
-    const speedRangeMatch = lower.match(/^(\d+)-(\d+)\s*([mk])\s*\/\s*d$/);
+    const speedRangeMatch = lower.match(/^(\d+[\.,]?\d*)\s*-\s*(\d+[\.,]?\d*)\s*([mk])\+?\s*\/\s*d$/);
     if (speedRangeMatch) {
       const unit = speedRangeMatch[3] === "m" ? "مليون" : "ك";
       bracketTags.push(`⚡ السرعة ${speedRangeMatch[1]}-${speedRangeMatch[2]}${unit}/اليوم`);
       return "";
     }
-    // Check known bracket tags
+    // Check known bracket tags (match cleaned version without emojis)
     for (const [key, val] of Object.entries(BRACKET_MAP)) {
       if (lower === key || lower.includes(key)) {
         if (val) bracketTags.push(val);
         return "";
       }
     }
-    // Keep instant/speed tags for main processing
-    if (/instant|fast|slow/i.test(lower)) return content;
     // Unknown bracket — keep if meaningful
-    if (lower.length > 1 && !/refill|button/i.test(lower)) bracketTags.push(content.trim());
+    if (lower.length > 1 && !/refill|button/i.test(lower)) bracketTags.push(cleaned);
     return "";
   }).replace(/\s+/g, " ").trim();
+
+  // Strip provider emojis from main input for better regex matching
+  input = stripEmoji(input).replace(/\s+/g, " ").trim();
 
   // 1. Detect platform
   let platform = "";

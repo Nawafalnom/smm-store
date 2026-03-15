@@ -363,30 +363,31 @@ export default function AdminPage() {
 
   // Translate all existing English services/categories to Arabic
   async function translateAllExisting() {
-    if (!confirm("هل تريد ترجمة جميع الخدمات والفئات الإنجليزية للعربي؟")) return;
+    if (!confirm("هل تريد إعادة ترجمة جميع الخدمات والفئات؟ سيتم الترجمة من الاسم الإنجليزي المحفوظ.")) return;
     setSyncing(true);
     let translated = 0;
     try {
       // Translate categories
       for (const cat of categories) {
-        const isEng = !/[\u0600-\u06FF]/.test(cat.name);
-        if (isEng) {
-          const arName = translateCategory(cat.name);
-          await supabase.from("categories").update({ name: arName, name_en: cat.name }).eq("id", cat.id);
-          translated++;
-        } else if (!(cat as any).name_en) {
-          // Already Arabic but no English backup — skip
+        const engName = (cat as any).name_en || cat.name;
+        const isEng = !/[\u0600-\u06FF]/.test(engName);
+        if (isEng && engName) {
+          const arName = translateCategory(engName);
+          if (arName !== cat.name) {
+            await supabase.from("categories").update({ name: arName }).eq("id", cat.id);
+            translated++;
+          }
         }
       }
-      // Translate services
+      // Translate services — always re-translate from name_en
       for (const svc of services) {
-        const isEng = !/[\u0600-\u06FF]/.test(svc.name);
-        if (isEng) {
-          const arName = translateToArabic(svc.name);
-          await supabase.from("services").update({ name: arName, name_en: svc.name }).eq("id", svc.id);
-          translated++;
-        } else if (!(svc as any).name_en) {
-          // Already Arabic but no English backup — skip
+        const engName = (svc as any).name_en;
+        if (engName && engName.trim()) {
+          const arName = translateToArabic(engName);
+          if (arName !== svc.name) {
+            await supabase.from("services").update({ name: arName }).eq("id", svc.id);
+            translated++;
+          }
         }
       }
       toast.success(`تم ترجمة ${translated} عنصر ✓`);
