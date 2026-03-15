@@ -2,10 +2,26 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { verifyTOTP, generateSecret, generateOTPAuthURI } from "@/lib/totp";
 
-const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "admin123456";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "admin123456";
 const SESSION_SECRET = process.env.SESSION_SECRET || "growence-media-admin-secret-key-2024";
 const TOTP_SECRET = process.env.ADMIN_TOTP_SECRET || ""; // If empty, 2FA is disabled
 const COOKIE_NAME = "gm_admin_session";
+
+// ─── Brute Force Protection ───
+const loginAttempts = new Map<string, { count: number; blockedUntil: number }>();
+const MAX_ATTEMPTS = 5;
+const BLOCK_DURATION = 15 * 60 * 1000; // 15 minutes
+
+function checkBruteForce(ip: string): { allowed: boolean; remaining: number; blockedFor?: number } {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry) return { allowed: true, remaining: MAX_ATTEMPTS };
+  if (now < entry.blockedUntil) return { allowed: false, remaining: 0, blockedFor: Math.ceil((entry.blockedUntil - now) / 60000) };
+  if (entry.count >= MAX_ATTEMPTS) { entry.blockedUntil = now + BLOCK_DURATION; return { allowed: false, remaining: 0, blockedFor: 15 }; }
+  return { allowed: true, remaining: MAX_ATTEMPTS - entry.count };
+}
+function recordFailedLogin(ip: string) { const e = loginAttempts.get(ip) || { count: 0, blockedUntil: 0 }; e.count++; loginAttempts.set(ip, e); }
+function clearLoginAttempts(ip: string) { loginAttempts.delete(ip); }
 
 function createToken(): string {
   const payload = {
@@ -57,8 +73,15 @@ export async function POST(req: NextRequest) {
 
     // Login - create session
     if (action === "login") {
+      const ip = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "unknown";
+      const bruteCheck = checkBruteForce(ip);
+      if (!bruteCheck.allowed) {
+        return NextResponse.json({ success: false, error: `محاولات كثيرة! حسابك محظور لمدة ${bruteCheck.blockedFor} دقيقة` });
+      }
+
       if (password !== ADMIN_PASSWORD) {
-        return NextResponse.json({ success: false, error: "كلمة المرور غير صحيحة" });
+        recordFailedLogin(ip);
+        return NextResponse.json({ success: false, error: `كلمة المرور غير صحيحة (${bruteCheck.remaining - 1} محاولات متبقية)` });
       }
 
       // 2FA check (if TOTP secret is configured)
@@ -67,10 +90,12 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ success: false, error: "أدخل رمز التحقق (2FA)", require_2fa: true });
         }
         if (!verifyTOTP(TOTP_SECRET, totp_code)) {
+          recordFailedLogin(ip);
           return NextResponse.json({ success: false, error: "رمز التحقق غير صحيح أو منتهي", require_2fa: true });
         }
       }
 
+      clearLoginAttempts(ip);
       const token = createToken();
       const res = NextResponse.json({ success: true });
       res.headers.set("Set-Cookie", setCookieHeader(token));
